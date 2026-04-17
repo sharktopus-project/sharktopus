@@ -59,6 +59,22 @@ path = nomads_filter.fetch_step(
 )
 ```
 
+Both sources apply a **default WRF-safe buffer of 2° on each side** of
+*bbox* before downloading/cropping (8 grid cells at 0.25° — enough
+margin for WPS / metgrid to interpolate into the WRF outer domain
+without edge effects). Override per axis when you need to:
+
+```python
+# Exact bbox, no buffer at all (e.g. you already padded upstream):
+nomads.fetch_step(..., bbox=bbox, pad_lon=0, pad_lat=0)
+
+# Wider zonal padding, narrow meridional padding (elongated domain):
+nomads_filter.fetch_step(..., bbox=bbox, pad_lon=4.0, pad_lat=1.5, ...)
+
+# Match CONVECT's legacy 5°-everywhere convention:
+nomads.fetch_step(..., bbox=bbox, pad_lon=5.0, pad_lat=5.0)
+```
+
 Both raise `sharktopus.sources.SourceUnavailable` when the step cannot be
 served (404, NOMADS retention exceeded, etc.) so Layer 2's orchestrator
 can fall back to another mirror.

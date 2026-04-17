@@ -27,6 +27,34 @@ class GribError(RuntimeError):
 Bbox = tuple[float, float, float, float]
 
 
+# Default buffer applied by source fetchers before cropping the downloaded
+# file. At 0.25° GFS this is 8 grid cells per side, a comfortable margin for
+# WPS/metgrid interpolation into a WRF outer domain. CONVECT's legacy scripts
+# hard-coded 5° (20 cells); anyone reproducing those runs can pass
+# ``pad_lon=5.0, pad_lat=5.0`` explicitly.
+DEFAULT_WRF_PAD_LON = 2.0
+DEFAULT_WRF_PAD_LAT = 2.0
+
+
+def expand_bbox(bbox: Bbox, pad_lon: float, pad_lat: float) -> Bbox:
+    """Return *bbox* grown by *pad_lon* deg on each lon side and *pad_lat* on each lat side.
+
+    Negative pads are rejected (shrinking would silently drop data the user
+    asked for); zero is allowed and is a no-op. Lat bounds are clamped to
+    ``[-90, 90]``; longitudes are left alone (callers may use any convention,
+    e.g. 0–360 or -180–180).
+    """
+    if pad_lon < 0 or pad_lat < 0:
+        raise ValueError(f"pad_lon/pad_lat must be >= 0, got {pad_lon!r}, {pad_lat!r}")
+    lon_w, lon_e, lat_s, lat_n = bbox
+    return (
+        lon_w - pad_lon,
+        lon_e + pad_lon,
+        max(-90.0, lat_s - pad_lat),
+        min(90.0, lat_n + pad_lat),
+    )
+
+
 # ---------------------------------------------------------------------------
 # 1. verify
 # ---------------------------------------------------------------------------
@@ -324,10 +352,13 @@ def have_wgrib2(wgrib2: str = "wgrib2") -> bool:
 
 __all__ = [
     "Bbox",
+    "DEFAULT_WRF_PAD_LAT",
+    "DEFAULT_WRF_PAD_LON",
     "GribError",
     "IdxRecord",
     "byte_ranges",
     "crop",
+    "expand_bbox",
     "filter_vars_levels",
     "have_wgrib2",
     "parse_idx",

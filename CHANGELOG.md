@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented here.
 
+## [Unreleased]
+
+### Added
+- `sharktopus.grib.expand_bbox(bbox, pad_lon, pad_lat)` — pure helper
+  that grows a bbox by independent lon/lat pads (clamps lat to ±90°,
+  rejects negative pads).
+- `sharktopus.grib.DEFAULT_WRF_PAD_LON` / `DEFAULT_WRF_PAD_LAT`
+  constants (both `2.0°` = 8 grid cells at 0.25°, the minimum margin
+  we consider WRF-safe for WPS / metgrid interpolation).
+
+### Changed
+- `sources.nomads.fetch_step` now expands *bbox* by `pad_lon` / `pad_lat`
+  (both default 2°) before calling `grib.crop`. Previously cropped the
+  exact user bbox, which is unsafe for WRF because metgrid needs a
+  margin.
+- `sources.nomads_filter.{build_url, fetch_step}` replace the single
+  isotropic `pad_deg` parameter with independent `pad_lon` / `pad_lat`,
+  both defaulting to 2°. Callers reproducing CONVECT's runs should pass
+  `pad_lon=5, pad_lat=5` explicitly.
+
 ## [0.1.0] — 2026-04-17
 
 ### Added

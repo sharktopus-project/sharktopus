@@ -33,6 +33,7 @@ def test_build_url_structure():
         variables=["TMP", "UGRD"],
         levels=["500 mb", "surface"],
         bbox=(-45, -40, -25, -20),
+        pad_lon=0, pad_lat=0,
     )
     parsed = urlparse(url)
     assert parsed.path.endswith("filter_gfs_0p25.pl")
@@ -49,17 +50,46 @@ def test_build_url_structure():
     assert qs["rightlon"] == ["-40"]
 
 
+def test_build_url_default_pad_is_wrf_safe():
+    # Defaults are grib.DEFAULT_WRF_PAD_LON / LAT (2° each): caller who just
+    # passes a bbox gets a WRF-safe margin for free.
+    url = nomads_filter.build_url(
+        TODAY, "00", 6,
+        variables=["TMP"], levels=["500 mb"],
+        bbox=(-45, -40, -25, -20),
+    )
+    qs = parse_qs(urlparse(url).query, keep_blank_values=True)
+    assert qs["toplat"] == ["-18"]       # -20 + 2
+    assert qs["bottomlat"] == ["-27"]    # -25 - 2
+    assert qs["leftlon"] == ["-47"]      # -45 - 2
+    assert qs["rightlon"] == ["-38"]     # -40 + 2
+
+
 def test_build_url_pads_bbox():
     url = nomads_filter.build_url(
         TODAY, "00", 6,
         variables=["TMP"], levels=["500 mb"],
-        bbox=(-45, -40, -25, -20), pad_deg=5,
+        bbox=(-45, -40, -25, -20), pad_lon=5, pad_lat=5,
     )
     qs = parse_qs(urlparse(url).query, keep_blank_values=True)
     assert qs["toplat"] == ["-15"]       # -20 + 5
     assert qs["bottomlat"] == ["-30"]    # -25 - 5
     assert qs["leftlon"] == ["-50"]      # -45 - 5
     assert qs["rightlon"] == ["-35"]     # -40 + 5
+
+
+def test_build_url_asymmetric_pad():
+    # pad_lon and pad_lat can differ — e.g. a zonal-elongated domain.
+    url = nomads_filter.build_url(
+        TODAY, "00", 6,
+        variables=["TMP"], levels=["500 mb"],
+        bbox=(-45, -40, -25, -20), pad_lon=3, pad_lat=1,
+    )
+    qs = parse_qs(urlparse(url).query, keep_blank_values=True)
+    assert qs["toplat"] == ["-19"]       # -20 + 1
+    assert qs["bottomlat"] == ["-26"]    # -25 - 1
+    assert qs["leftlon"] == ["-48"]      # -45 - 3
+    assert qs["rightlon"] == ["-37"]     # -40 + 3
 
 
 def test_build_url_hourly_flag():

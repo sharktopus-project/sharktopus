@@ -8,10 +8,13 @@ from pathlib import Path
 import pytest
 
 from sharktopus.grib import (
+    DEFAULT_WRF_PAD_LAT,
+    DEFAULT_WRF_PAD_LON,
     GribError,
     IdxRecord,
     byte_ranges,
     crop,
+    expand_bbox,
     filter_vars_levels,
     have_wgrib2,
     parse_idx,
@@ -189,3 +192,44 @@ def test_verify_on_real_grib_if_available():
         pytest.skip("no cached GFS GRIB2 file found")
     n = verify(candidates[0])
     assert n > 0
+
+
+# ---------------------------------------------------------------------------
+# expand_bbox
+# ---------------------------------------------------------------------------
+
+def test_expand_bbox_symmetric():
+    assert expand_bbox((-45, -40, -25, -20), pad_lon=2, pad_lat=2) == (
+        -47, -38, -27, -18,
+    )
+
+
+def test_expand_bbox_asymmetric():
+    assert expand_bbox((-45, -40, -25, -20), pad_lon=3, pad_lat=1) == (
+        -48, -37, -26, -19,
+    )
+
+
+def test_expand_bbox_zero_is_noop():
+    bbox = (10.5, 20.5, -5.0, 5.0)
+    assert expand_bbox(bbox, pad_lon=0, pad_lat=0) == bbox
+
+
+def test_expand_bbox_clamps_latitude():
+    # Latitude clamps at the poles; longitudes are left alone.
+    out = expand_bbox((0, 10, -89, 89), pad_lon=0, pad_lat=5)
+    assert out == (0, 10, -90.0, 90.0)
+
+
+def test_expand_bbox_rejects_negative_pad():
+    with pytest.raises(ValueError):
+        expand_bbox((-45, -40, -25, -20), pad_lon=-1, pad_lat=0)
+    with pytest.raises(ValueError):
+        expand_bbox((-45, -40, -25, -20), pad_lon=0, pad_lat=-1)
+
+
+def test_default_pad_is_positive():
+    # Defaults must be > 0 so callers get a WRF-safe buffer by accident, not
+    # an exact-bbox that silently breaks metgrid.
+    assert DEFAULT_WRF_PAD_LON > 0
+    assert DEFAULT_WRF_PAD_LAT > 0

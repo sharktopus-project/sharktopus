@@ -54,6 +54,23 @@ general GRIB2 fact. Layer 0's `filter_vars_levels` takes them as parameters.
 | `check_retention()` | Generalized from the hard-coded 10-day check in `download_nomads_filter.py:106-112` |
 | `canonical_filename()` | `f"gfs.t{ref}z.pgrb2.0p25.f{prog:03d}"` appears identically in every CONVECT download script |
 
+## WRF buffer / bbox padding
+
+CONVECT's download scripts hard-code a 5° buffer around the user's bbox
+before calling the filter endpoint or `wgrib2 -small_grib`:
+`download_nomades_gfs_0p25.py:343-346`, `download_aws_gfs_0p25_full4.py:245-248`,
+`download_rda_gfs.py:284` (all `margin = 5` or `+5`/`-5`). That margin is
+a safety net for WRF's WPS / metgrid, which interpolates GFS onto the
+WRF grid and needs data slightly outside the WRF outer domain.
+
+`sharktopus` exposes this explicitly:
+
+- `grib.expand_bbox(bbox, pad_lon, pad_lat)` is the pure helper.
+- Every source that takes a *bbox* also takes `pad_lon` and `pad_lat`
+  (independent, default 2° each = 8 grid cells at 0.25°, the minimum
+  we consider WRF-safe). CONVECT's 5°-everywhere is still reachable
+  via `pad_lon=5, pad_lat=5`.
+
 ## Intentional differences
 
 - **`bbox` convention.** CONVECT passes `lat_s, lat_n, lon_w, lon_e` as four

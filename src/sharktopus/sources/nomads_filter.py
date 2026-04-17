@@ -78,14 +78,17 @@ def build_url(
     levels: Iterable[str],
     bbox: grib.Bbox,
     product: str = "pgrb2.0p25",
-    pad_deg: float = 0.0,
+    pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
+    pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
     hourly: bool = False,
 ) -> str:
     """Return the NOMADS filter URL for one step.
 
-    *bbox* is ``(lon_w, lon_e, lat_s, lat_n)``. *pad_deg* expands the
-    bbox by that many degrees on every side — CONVECT historically pads
-    by 1° (filter endpoint) or 5° (full-then-crop path).
+    *bbox* is ``(lon_w, lon_e, lat_s, lat_n)``. *pad_lon* / *pad_lat*
+    expand the bbox on each side before requesting the subregion; the
+    defaults match :data:`sharktopus.grib.DEFAULT_WRF_PAD_LON` /
+    ``DEFAULT_WRF_PAD_LAT`` (2° each), i.e. the minimum margin we
+    consider safe for WRF/WPS. Pass ``0`` for an exact-bbox request.
     """
     validate_cycle(cycle)
     validate_date(date)
@@ -98,6 +101,9 @@ def build_url(
     lon_w, lon_e, lat_s, lat_n = bbox
     if lon_e <= lon_w or lat_n <= lat_s:
         raise ValueError(f"invalid bbox: {bbox!r}")
+    padded_w, padded_e, padded_s, padded_n = grib.expand_bbox(
+        bbox, pad_lon=pad_lon, pad_lat=pad_lat,
+    )
 
     file_param = canonical_filename(cycle, fxx, product=product)
     # Pairs preserve order in the URL, matching CONVECT's layout.
@@ -111,10 +117,10 @@ def build_url(
         params.append((level_to_param(lv), "on"))
     params.extend([
         ("subregion", ""),
-        ("toplat", f"{lat_n + pad_deg:g}"),
-        ("leftlon", f"{lon_w - pad_deg:g}"),
-        ("rightlon", f"{lon_e + pad_deg:g}"),
-        ("bottomlat", f"{lat_s - pad_deg:g}"),
+        ("toplat", f"{padded_n:g}"),
+        ("leftlon", f"{padded_w:g}"),
+        ("rightlon", f"{padded_e:g}"),
+        ("bottomlat", f"{padded_s:g}"),
     ])
     base = BASE_URL_1HR if hourly else BASE_URL
     return base + "?" + urlencode(params)
@@ -130,7 +136,8 @@ def fetch_step(
     variables: Iterable[str],
     levels: Iterable[str],
     product: str = "pgrb2.0p25",
-    pad_deg: float = 0.0,
+    pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
+    pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
     hourly: bool = False,
     timeout: float = 60.0,
     max_retries: int = 3,
@@ -145,14 +152,17 @@ def fetch_step(
     what the server is asked to return. No local crop is performed —
     whatever the server returns is the final file.
 
-    *hourly* selects the ``filter_gfs_0p25_1hr.pl`` endpoint (fxx 0–120
-    hourly), otherwise the default 3-hourly endpoint is used.
+    *pad_lon* / *pad_lat* expand the requested subregion by that many
+    degrees on each side (defaults: 2° — see
+    :data:`sharktopus.grib.DEFAULT_WRF_PAD_LON`). *hourly* selects the
+    ``filter_gfs_0p25_1hr.pl`` endpoint (fxx 0–120 hourly), otherwise
+    the default 3-hourly endpoint is used.
     """
     check_retention(date, days=RETENTION_DAYS)
     url = build_url(
         date, cycle, fxx,
         variables=variables, levels=levels, bbox=bbox,
-        product=product, pad_deg=pad_deg, hourly=hourly,
+        product=product, pad_lon=pad_lon, pad_lat=pad_lat, hourly=hourly,
     )
     dest_dir = Path(dest)
     final = dest_dir / canonical_filename(cycle, fxx, product=product)

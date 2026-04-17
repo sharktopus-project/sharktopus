@@ -54,6 +54,8 @@ def fetch_step(
     *,
     dest: str | Path,
     bbox: grib.Bbox | None = None,
+    pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
+    pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
     product: str = "pgrb2.0p25",
     timeout: float = 60.0,
     max_retries: int = 3,
@@ -76,9 +78,18 @@ def fetch_step(
     bbox : tuple, optional
         ``(lon_w, lon_e, lat_s, lat_n)``. When given, the full file is
         downloaded and then cropped locally with
-        :func:`sharktopus.grib.crop`; the final name is the cropped
-        file's name (same as the downloaded full name). Without *bbox*,
-        the original file is kept unmodified.
+        :func:`sharktopus.grib.crop`. The actual crop window is the
+        *bbox* grown by ``pad_lon`` / ``pad_lat`` on each side so WPS /
+        metgrid has a safe margin around the WRF outer domain. Without
+        *bbox*, the original file is kept unmodified and the pads are
+        ignored.
+    pad_lon, pad_lat : float
+        Buffer in degrees added to each side of *bbox* before cropping.
+        Defaults: :data:`sharktopus.grib.DEFAULT_WRF_PAD_LON` /
+        ``DEFAULT_WRF_PAD_LAT`` (2° each, ≈8 grid cells at 0.25° — the
+        minimum margin we guarantee is WRF-safe). Pass ``0`` for an
+        exact-bbox crop, or larger values (CONVECT's legacy scripts use
+        5°) for extra safety.
     product : str
         GFS product code (default ``"pgrb2.0p25"``).
     timeout, max_retries, retry_wait : float, int, float
@@ -113,10 +124,11 @@ def fetch_step(
     )
 
     if bbox is not None:
+        crop_bbox = grib.expand_bbox(bbox, pad_lon=pad_lon, pad_lat=pad_lat)
         tmp = final.with_suffix(final.suffix + ".full")
         final.rename(tmp)
         try:
-            grib.crop(tmp, final, bbox=bbox, wgrib2=wgrib2)
+            grib.crop(tmp, final, bbox=crop_bbox, wgrib2=wgrib2)
         finally:
             try:
                 tmp.unlink()

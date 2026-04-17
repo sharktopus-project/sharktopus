@@ -86,6 +86,7 @@ def test_fetch_step_with_bbox_calls_grib_crop(tmp_path, monkeypatch):
 
     out = nomads.fetch_step(
         TODAY, "00", 6, dest=tmp_path, bbox=(-45, -40, -25, -20),
+        pad_lon=0, pad_lat=0,  # exact-bbox, no buffer
     )
     assert out.read_bytes() == b"CROPPED"
     assert len(crop_calls) == 1
@@ -93,6 +94,32 @@ def test_fetch_step_with_bbox_calls_grib_crop(tmp_path, monkeypatch):
     assert bbox == (-45, -40, -25, -20)
     # .full intermediate should have been cleaned up
     assert not (tmp_path / "gfs.t00z.pgrb2.0p25.f006.full").exists()
+
+
+def test_fetch_step_default_pad_expands_crop(tmp_path, monkeypatch):
+    """Default pad_lon/pad_lat expand the bbox before cropping — user gets
+    a WRF-safe margin without having to ask for it."""
+    opener = _make_opener(b"GRIB" + b"\x00" * 100 + b"7777")
+    import sharktopus.sources.base as base_mod
+    monkeypatch.setattr(base_mod.urllib.request, "urlopen", opener)
+    monkeypatch.setattr("sharktopus.sources.nomads.grib.have_wgrib2",
+                        lambda *a, **k: False)
+
+    crop_calls: list[tuple] = []
+
+    def fake_crop(src, dst, bbox, wgrib2="wgrib2"):
+        crop_calls.append(bbox)
+        from pathlib import Path as _P
+        _P(dst).write_bytes(b"CROPPED")
+        return _P(dst)
+
+    monkeypatch.setattr("sharktopus.sources.nomads.grib.crop", fake_crop)
+
+    nomads.fetch_step(
+        TODAY, "00", 6, dest=tmp_path, bbox=(-45, -40, -25, -20),
+        pad_lon=3, pad_lat=1,
+    )
+    assert crop_calls == [(-48, -37, -26, -19)]
 
 
 def test_fetch_step_404_raises_source_unavailable(tmp_path, monkeypatch):

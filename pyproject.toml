@@ -35,6 +35,18 @@ Source = "https://github.com/leandrometeoro/sharktopus"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sharktopus"]
+# Binary wgrib2 lives in src/sharktopus/_bin/ and is dropped there at build
+# time by scripts/bundle_wgrib2.sh. When the dir is empty (sdist / source
+# install) the wheel is pure-Python and users must have wgrib2 on PATH.
+artifacts = ["src/sharktopus/_bin/wgrib2*"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+# See hatch_build.py — flips the wheel to platform-specific when a wgrib2
+# binary is present in _bin/ at build time.
+
+[tool.hatch.build.targets.sdist]
+# Don't ship the bundled binary in the sdist; each platform builds its own.
+exclude = ["src/sharktopus/_bin/wgrib2*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

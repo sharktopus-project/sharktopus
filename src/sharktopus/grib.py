@@ -12,11 +12,17 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+
+from ._wgrib2 import (
+    WgribNotFoundError,
+    bundled_wgrib2,
+    ensure_wgrib2,
+    resolve_wgrib2,
+)
 
 
 class GribError(RuntimeError):
@@ -59,25 +65,37 @@ def expand_bbox(bbox: Bbox, pad_lon: float, pad_lat: float) -> Bbox:
 # 1. verify
 # ---------------------------------------------------------------------------
 
-def verify(path: str | os.PathLike, wgrib2: str = "wgrib2") -> int:
+def verify(path: str | os.PathLike, wgrib2: str | None = None) -> int:
     """Return the number of GRIB2 records in *path*.
 
     Wraps ``wgrib2 -s`` and counts its output lines. Raises :class:`GribError`
-    if wgrib2 fails or is absent.
+    if wgrib2 fails, is absent, or the file parses to zero records while
+    being non-empty on disk — wgrib2 stays silent on malformed input, so
+    we treat that as a corrupt / non-GRIB2 file.
     """
+    exe = _resolve_or_grib_error(wgrib2)
     try:
         proc = subprocess.run(
-            [wgrib2, "-s", str(path)],
+            [exe, "-s", str(path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
             text=True,
         )
-    except FileNotFoundError as e:
-        raise GribError(f"{wgrib2} not found on PATH") from e
     except subprocess.CalledProcessError as e:
-        raise GribError(f"{wgrib2} -s failed on {path}: {e.stderr.strip()}") from e
-    return len(proc.stdout.splitlines())
+        raise GribError(f"{exe} -s failed on {path}: {e.stderr.strip()}") from e
+    n = len(proc.stdout.splitlines())
+    if n == 0:
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        if size > 0:
+            raise GribError(
+                f"{path} has {size} bytes but wgrib2 parsed zero records "
+                f"— file is not valid GRIB2"
+            )
+    return n
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +106,7 @@ def crop(
     src: str | os.PathLike,
     dst: str | os.PathLike,
     bbox: Bbox,
-    wgrib2: str = "wgrib2",
+    wgrib2: str | None = None,
 ) -> Path:
     """Geographic subset of *src* into *dst*.
 
@@ -100,10 +118,11 @@ def crop(
     _validate_bbox(lon_w, lon_e, lat_s, lat_n)
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
+    exe = _resolve_or_grib_error(wgrib2)
     try:
         subprocess.run(
             [
-                wgrib2, str(src),
+                exe, str(src),
                 "-small_grib", f"{lon_w}:{lon_e}", f"{lat_s}:{lat_n}",
                 str(dst),
             ],
@@ -112,10 +131,8 @@ def crop(
             stderr=subprocess.PIPE,
             text=True,
         )
-    except FileNotFoundError as e:
-        raise GribError(f"{wgrib2} not found on PATH") from e
     except subprocess.CalledProcessError as e:
-        raise GribError(f"{wgrib2} -small_grib failed: {e.stderr.strip()}") from e
+        raise GribError(f"{exe} -small_grib failed: {e.stderr.strip()}") from e
     return dst
 
 
@@ -128,7 +145,7 @@ def filter_vars_levels(
     dst: str | os.PathLike,
     variables: Iterable[str],
     levels: Iterable[str],
-    wgrib2: str = "wgrib2",
+    wgrib2: str | None = None,
 ) -> Path:
     """Filter *src* to records matching *variables* AND *levels*.
 
@@ -144,10 +161,11 @@ def filter_vars_levels(
     lev_pattern = "(" + "|".join(lev_list) + ")"
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
+    exe = _resolve_or_grib_error(wgrib2)
     try:
         subprocess.run(
             [
-                wgrib2, str(src),
+                exe, str(src),
                 "-match", f":{var_pattern}:",
                 "-match", f":{lev_pattern}:",
                 "-grib", str(dst),
@@ -157,10 +175,8 @@ def filter_vars_levels(
             stderr=subprocess.PIPE,
             text=True,
         )
-    except FileNotFoundError as e:
-        raise GribError(f"{wgrib2} not found on PATH") from e
     except subprocess.CalledProcessError as e:
-        raise GribError(f"{wgrib2} -match failed: {e.stderr.strip()}") from e
+        raise GribError(f"{exe} -match failed: {e.stderr.strip()}") from e
     return dst
 
 
@@ -283,7 +299,7 @@ _FCST_RE = re.compile(r"(\d+)\s+hour\s+fcst:")
 
 def rename_by_validity(
     path: str | os.PathLike,
-    wgrib2: str = "wgrib2",
+    wgrib2: str | None = None,
     overwrite: bool = True,
 ) -> Path:
     """Rename a GRIB2 file to ``gfs.0p25.{YYYYMMDDHH}.f{PPP}.grib2``.
@@ -294,18 +310,17 @@ def rename_by_validity(
     :class:`GribError`.
     """
     src = Path(path).resolve()
+    exe = _resolve_or_grib_error(wgrib2)
     try:
         proc = subprocess.run(
-            [wgrib2, "-v", str(src)],
+            [exe, "-v", str(src)],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-    except FileNotFoundError as e:
-        raise GribError(f"{wgrib2} not found on PATH") from e
     except subprocess.CalledProcessError as e:
-        raise GribError(f"{wgrib2} -v failed on {src}: {e.stderr.strip()}") from e
+        raise GribError(f"{exe} -v failed on {src}: {e.stderr.strip()}") from e
 
     lines = proc.stdout.splitlines()
     if not lines:
@@ -345,9 +360,26 @@ def _validate_bbox(lon_w: float, lon_e: float, lat_s: float, lat_n: float) -> No
         raise ValueError(f"lon_e ({lon_e}) must be > lon_w ({lon_w})")
 
 
-def have_wgrib2(wgrib2: str = "wgrib2") -> bool:
-    """Return True if *wgrib2* is on PATH and executable."""
-    return shutil.which(wgrib2) is not None
+def _resolve_or_grib_error(explicit: str | os.PathLike | None) -> str:
+    """Internal helper: turn a missing wgrib2 into :class:`GribError`.
+
+    The public :func:`ensure_wgrib2` raises :class:`WgribNotFoundError`;
+    callers of :mod:`sharktopus.grib` expect the grib-specific exception,
+    so we re-raise.
+    """
+    try:
+        return ensure_wgrib2(explicit)
+    except WgribNotFoundError as e:
+        raise GribError(str(e)) from e
+
+
+def have_wgrib2(wgrib2: str | None = None) -> bool:
+    """Return True if a usable wgrib2 binary can be resolved.
+
+    Checks the full resolution chain (explicit arg, ``SHARKTOPUS_WGRIB2``,
+    bundled binary, ``$PATH``), not just ``$PATH``.
+    """
+    return resolve_wgrib2(wgrib2) is not None
 
 
 __all__ = [
@@ -356,12 +388,16 @@ __all__ = [
     "DEFAULT_WRF_PAD_LON",
     "GribError",
     "IdxRecord",
+    "WgribNotFoundError",
+    "bundled_wgrib2",
     "byte_ranges",
     "crop",
+    "ensure_wgrib2",
     "expand_bbox",
     "filter_vars_levels",
     "have_wgrib2",
     "parse_idx",
     "rename_by_validity",
+    "resolve_wgrib2",
     "verify",
 ]

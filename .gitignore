@@ -12,3 +12,7 @@ dist/
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+
+# Bundled wgrib2 binary — dropped here at wheel-build time, never committed.
+src/sharktopus/_bin/wgrib2
+src/sharktopus/_bin/wgrib2.exe

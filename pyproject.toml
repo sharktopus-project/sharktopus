@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sharktopus"
+version = "0.0.1"
+description = "Download and crop GFS forecast data — local sources first, serverless cloud optional."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Leandro", email = "leandrometeoro@gmail.com" },
+]
+keywords = ["gfs", "weather", "wrf", "grib2", "noaa", "forecast"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+xarray = ["cfgrib", "xarray"]
+
+[project.urls]
+Homepage = "https://github.com/leandrometeoro/sharktopus"
+Source = "https://github.com/leandrometeoro/sharktopus"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sharktopus"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

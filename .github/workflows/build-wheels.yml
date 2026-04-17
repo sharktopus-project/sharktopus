@@ -1,0 +1,66 @@
+name: Build wheels
+
+# Builds platform-specific sharktopus wheels with wgrib2 bundled inside.
+# Triggered on version tags (v*) and manually. Wheels are uploaded as
+# workflow artifacts — this workflow deliberately does NOT publish to
+# PyPI. Publishing is a follow-up, manual step once we've inspected the
+# artifacts.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  linux-x86_64:
+    name: Linux x86_64 (manylinux_2_28)
+    runs-on: ubuntu-latest
+    container:
+      image: quay.io/pypa/manylinux_2_28_x86_64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gfortran
+        # manylinux_2_28 ships gcc but not gfortran; wgrib2's Fortran
+        # sources need it. dnf is the image's package manager.
+        run: dnf install -y gcc-gfortran
+
+      - name: Put CPython 3.12 on PATH
+        # Manylinux images keep each CPython under /opt/python/<tag>/bin.
+        # We only need one to run `python -m build`; the resulting wheel
+        # is tagged py3-none-<plat> so every supported minor can install it.
+        run: echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
+
+      - name: Install build tooling
+        run: pip install --upgrade pip build auditwheel
+
+      - name: Compile wgrib2
+        run: scripts/build_wgrib2.sh /tmp/wgrib2
+
+      - name: Bundle into wheel + auditwheel repair
+        env:
+          SHARKTOPUS_WGRIB2_SRC: /tmp/wgrib2
+        run: scripts/bundle_wgrib2.sh
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sharktopus-linux-x86_64
+          path: dist/*.whl
+          if-no-files-found: error
+
+  # TODO: enable once the Linux x86_64 flow is green and we have a case
+  # for each extra platform. Each needs its own wgrib2 compile path
+  # (cross-compile or native runner) and appropriate wheel-repair step.
+  #
+  # linux-aarch64:
+  #   runs-on: ubuntu-24.04-arm
+  #   container: quay.io/pypa/manylinux_2_28_aarch64
+  #   …
+  #
+  # macos-arm64:
+  #   runs-on: macos-14
+  #   steps:
+  #     - …compile wgrib2 via Homebrew gfortran…
+  #     - …delocate-wheel instead of auditwheel…

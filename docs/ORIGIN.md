@@ -25,6 +25,35 @@ They belong to the NOMADS / AWS / GCloud / Azure *sources* (Layer 1), because
 they describe what each source is expected to deliver for WRF input, not a
 general GRIB2 fact. Layer 0's `filter_vars_levels` takes them as parameters.
 
+## Layer 1 — `sharktopus.sources.*`
+
+### `sharktopus.sources.nomads`
+
+| sharktopus symbol | CONVECT source |
+|---|---|
+| `BASE_URL` | `url_base` in `download_nomades_gfs_0p25.py::download_global` (line 278) |
+| `build_url(date, cycle, fxx)` | URL composition in the same function |
+| `fetch_step(...)` | Consolidation of `download_global` + retry loop from `download_file_with_progress` (line 25) |
+| 10-day retention guard | Same check exists in `download_nomads_filter.py:106-112` — generalized here via `base.check_retention` |
+
+### `sharktopus.sources.nomads_filter`
+
+| sharktopus symbol | CONVECT source |
+|---|---|
+| `BASE_URL` / `BASE_URL_1HR` | `url_base` in `download_nomades_gfs_0p25.py::download_recorte` (line 349) and `BASE_URL` in `download_nomads_filter.py:150` |
+| `level_to_param()` | The `&lev_{key}=on` encoding scattered across both CONVECT scripts (e.g. `download_nomades_gfs_0p25.py:329-339`) |
+| `build_url(...)` | `query_static + query_levels + query_spatial` block in `download_nomades_gfs_0p25.py:325-362` |
+| `fetch_step(...)` | `download_recorte` orchestration, but dropping the hardcoded variable/level set (caller's responsibility) |
+
+### `sharktopus.sources.base`
+
+| sharktopus symbol | CONVECT origin |
+|---|---|
+| `SourceUnavailable` | New — CONVECT scripts `sys.exit(1)` or raise generic `RuntimeError`; we need a typed exception so Layer 2 can fall back |
+| `stream_download()` | Simplified stdlib port of `download_file_with_progress` variants (used both `wget` and `requests`; we use `urllib.request`) |
+| `check_retention()` | Generalized from the hard-coded 10-day check in `download_nomads_filter.py:106-112` |
+| `canonical_filename()` | `f"gfs.t{ref}z.pgrb2.0p25.f{prog:03d}"` appears identically in every CONVECT download script |
+
 ## Intentional differences
 
 - **`bbox` convention.** CONVECT passes `lat_s, lat_n, lon_w, lon_e` as four
@@ -36,3 +65,11 @@ general GRIB2 fact. Layer 0's `filter_vars_levels` takes them as parameters.
 - **No hidden I/O.** `parse_idx` is a pure function (takes text, returns a
   list of records). CONVECT's `read_idx` mixes HTTP + filtering; those get
   rebuilt at the sources layer on top of `parse_idx`.
+- **No hardcoded variable/level set in Layer 1.** Every CONVECT script
+  carries a private copy of the 13-variable / 48-level WRF-input set.
+  `sharktopus` pushes that decision to the caller: `nomads_filter.fetch_step`
+  accepts `variables=` and `levels=` as required arguments. This keeps the
+  library useful for workflows other than WRF.
+- **Stdlib-only networking.** CONVECT uses `wget` (in `nomades`) and
+  `requests` (in `nomads_filter`). The library uses `urllib.request` so
+  the base install has zero runtime dependencies.

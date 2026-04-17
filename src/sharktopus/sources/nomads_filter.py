@@ -1,0 +1,174 @@
+"""NOMADS ``filter_gfs_0p25.pl`` — server-side variable/level/subregion subset.
+
+Unlike :mod:`~sharktopus.sources.nomads`, which fetches the full ~500 MB
+file and crops locally, this source asks NOAA's CGI filter to return
+only the requested variables, levels, and geographic window. Much
+faster when you need a small slice, but requires the caller to know
+the NOMADS query-parameter vocabulary for variables and levels.
+
+The filter endpoint enforces the same ~10-day retention window as
+direct NOMADS.
+
+Example
+-------
+
+>>> from sharktopus.sources import nomads_filter
+>>> path = nomads_filter.fetch_step(
+...     "20240121", "00", 6,
+...     dest="/tmp/gfs",
+...     bbox=(-45, -40, -25, -20),
+...     variables=["TMP", "UGRD", "VGRD", "HGT"],
+...     levels=["500 mb", "850 mb", "surface"],
+... )
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable
+from urllib.parse import urlencode
+
+from .. import grib
+from .base import (
+    SourceUnavailable,
+    canonical_filename,
+    check_retention,
+    stream_download,
+    validate_cycle,
+    validate_date,
+)
+
+BASE_URL = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
+BASE_URL_1HR = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25_1hr.pl"
+RETENTION_DAYS = 10
+
+__all__ = [
+    "BASE_URL",
+    "BASE_URL_1HR",
+    "build_url",
+    "fetch_step",
+    "level_to_param",
+]
+
+
+def level_to_param(level: str) -> str:
+    """Convert a wgrib2-style level string into a NOMADS query-param key.
+
+    Examples
+    --------
+
+    >>> level_to_param("500 mb")
+    'lev_500_mb'
+    >>> level_to_param("2 m above ground")
+    'lev_2_m_above_ground'
+    >>> level_to_param("mean sea level")
+    'lev_mean_sea_level'
+    >>> level_to_param("0-0.1 m below ground")
+    'lev_0-0.1_m_below_ground'
+    """
+    return "lev_" + level.replace(" ", "_")
+
+
+def build_url(
+    date: str,
+    cycle: str,
+    fxx: int,
+    *,
+    variables: Iterable[str],
+    levels: Iterable[str],
+    bbox: grib.Bbox,
+    product: str = "pgrb2.0p25",
+    pad_deg: float = 0.0,
+    hourly: bool = False,
+) -> str:
+    """Return the NOMADS filter URL for one step.
+
+    *bbox* is ``(lon_w, lon_e, lat_s, lat_n)``. *pad_deg* expands the
+    bbox by that many degrees on every side — CONVECT historically pads
+    by 1° (filter endpoint) or 5° (full-then-crop path).
+    """
+    validate_cycle(cycle)
+    validate_date(date)
+    var_list = list(variables)
+    lev_list = list(levels)
+    if not var_list:
+        raise ValueError("variables must be a non-empty iterable")
+    if not lev_list:
+        raise ValueError("levels must be a non-empty iterable")
+    lon_w, lon_e, lat_s, lat_n = bbox
+    if lon_e <= lon_w or lat_n <= lat_s:
+        raise ValueError(f"invalid bbox: {bbox!r}")
+
+    file_param = canonical_filename(cycle, fxx, product=product)
+    # Pairs preserve order in the URL, matching CONVECT's layout.
+    params: list[tuple[str, str]] = [
+        ("dir", f"/gfs.{date}/{cycle}/atmos"),
+        ("file", file_param),
+    ]
+    for v in var_list:
+        params.append((f"var_{v}", "on"))
+    for lv in lev_list:
+        params.append((level_to_param(lv), "on"))
+    params.extend([
+        ("subregion", ""),
+        ("toplat", f"{lat_n + pad_deg:g}"),
+        ("leftlon", f"{lon_w - pad_deg:g}"),
+        ("rightlon", f"{lon_e + pad_deg:g}"),
+        ("bottomlat", f"{lat_s - pad_deg:g}"),
+    ])
+    base = BASE_URL_1HR if hourly else BASE_URL
+    return base + "?" + urlencode(params)
+
+
+def fetch_step(
+    date: str,
+    cycle: str,
+    fxx: int,
+    *,
+    dest: str | Path,
+    bbox: grib.Bbox,
+    variables: Iterable[str],
+    levels: Iterable[str],
+    product: str = "pgrb2.0p25",
+    pad_deg: float = 0.0,
+    hourly: bool = False,
+    timeout: float = 60.0,
+    max_retries: int = 3,
+    retry_wait: float = 10.0,
+    verify: bool = True,
+    wgrib2: str = "wgrib2",
+) -> Path:
+    """Download one forecast step already subset on the server.
+
+    Same contract as :func:`sharktopus.sources.nomads.fetch_step`, but
+    *bbox*, *variables*, and *levels* are mandatory since they define
+    what the server is asked to return. No local crop is performed —
+    whatever the server returns is the final file.
+
+    *hourly* selects the ``filter_gfs_0p25_1hr.pl`` endpoint (fxx 0–120
+    hourly), otherwise the default 3-hourly endpoint is used.
+    """
+    check_retention(date, days=RETENTION_DAYS)
+    url = build_url(
+        date, cycle, fxx,
+        variables=variables, levels=levels, bbox=bbox,
+        product=product, pad_deg=pad_deg, hourly=hourly,
+    )
+    dest_dir = Path(dest)
+    final = dest_dir / canonical_filename(cycle, fxx, product=product)
+
+    stream_download(
+        url, final,
+        timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
+    )
+
+    if verify and grib.have_wgrib2(wgrib2):
+        n = grib.verify(final, wgrib2=wgrib2)
+        if n <= 0:
+            try:
+                final.unlink()
+            except FileNotFoundError:
+                pass
+            raise SourceUnavailable(f"filter returned no records: {url}")
+
+    return final

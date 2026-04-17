@@ -4,9 +4,10 @@ Download and crop GFS forecast data. Local sources first (NOMADS, AWS Open Data,
 Google Cloud, Azure Blob); serverless cloud recortador is an optional second
 layer for free-tier distributed cropping.
 
-> **Status (2026-04-17): pre-alpha, layer 0 only.** The current code is the
-> `grib` module — pure wgrib2/`.idx` utilities used by every download source.
-> No network code yet. See `docs/ROADMAP.md` for the layered build plan.
+> **Status (2026-04-17): pre-alpha, layers 0–1 partial.** `grib` utilities
+> are complete; `sources.nomads` and `sources.nomads_filter` are ported
+> from CONVECT and tested. Other mirrors (AWS/GCloud/Azure/RDA) are next.
+> See `docs/ROADMAP.md` for the layered build plan.
 
 ## Install
 
@@ -15,7 +16,9 @@ layer for free-tier distributed cropping.
 pip install -e .
 ```
 
-## Quick start (layer 0 — local wgrib2 utilities)
+## Quick start
+
+### Layer 0 — wgrib2 utilities
 
 ```python
 from sharktopus.grib import verify, crop, filter_vars_levels, parse_idx, byte_ranges
@@ -33,6 +36,32 @@ records = parse_idx(open("in.grib2.idx").read())
 # Compute consolidated HTTP Range tuples for a subset of records
 ranges = byte_ranges(records, wanted={"TMP:500 mb", "UGRD:850 mb"}, total_size=524_288_000)
 ```
+
+### Layer 1 — NOMADS sources
+
+```python
+from sharktopus.sources import nomads, nomads_filter
+
+# Option A — full file (~500 MB), cropped locally afterwards
+path = nomads.fetch_step(
+    "20240417", "00", 6,
+    dest="/tmp/gfs",
+    bbox=(-45, -40, -25, -20),   # lon_w, lon_e, lat_s, lat_n
+)
+
+# Option B — server-side subset (tiny download, no wgrib2 crop needed)
+path = nomads_filter.fetch_step(
+    "20240417", "00", 6,
+    dest="/tmp/gfs",
+    bbox=(-45, -40, -25, -20),
+    variables=["TMP", "UGRD", "VGRD", "HGT"],
+    levels=["500 mb", "850 mb", "surface"],
+)
+```
+
+Both raise `sharktopus.sources.SourceUnavailable` when the step cannot be
+served (404, NOMADS retention exceeded, etc.) so Layer 2's orchestrator
+can fall back to another mirror.
 
 ## Inspiration and origin
 

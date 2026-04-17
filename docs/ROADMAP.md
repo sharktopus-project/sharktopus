@@ -22,33 +22,27 @@ CONVECT radar-DA pipeline) before the next layer starts.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## Layer 0 — `sharktopus.grib` — IN PROGRESS
+## Layer 0 — `sharktopus.grib` — DONE (v0.0.1)
 
 Six pure utilities consolidated from CONVECT's five download scripts. See
 `docs/ORIGIN.md`.
 
-**Validation**
-- `pytest` on a hand-made tiny `.idx` text passes `parse_idx` / `byte_ranges`.
-- With `wgrib2` on PATH + a real GFS GRIB2 (any vintage), `verify` returns
-  the expected record count and `crop` produces a file whose `verify` > 0.
+## Layer 1 — `sharktopus.sources.*` — IN PROGRESS (v0.1.0)
 
-## Layer 1 — `sharktopus.sources.*` — PENDING
-
-Five source modules, each exposing:
+Source modules, each exposing:
 
 ```python
-def fetch_step(date, cycle, fxx, *, dest, bbox=None, vars_levels=None,
-               timeout=300) -> Path: ...
+def fetch_step(date, cycle, fxx, *, dest, bbox=None, ...) -> Path: ...
 ```
 
-Port order:
+Port order (2/6 done):
 
-1. `nomads` — full-file download from `nomads.ncep.noaa.gov`
-2. `nomads_filter` — server-side subset via `filter_gfs_0p25.pl`
-3. `aws_s3` — byte-range from `noaa-gfs-bdp-pds` (boto3)
-4. `gcloud_storage` — byte-range from `global-forecast-system` (HTTPS public)
-5. `azure_blob` — byte-range from `noaagfs.blob.core.windows.net` (HTTPS public)
-6. `rda` — NCAR RDA authenticated download (0.25° and 1°)
+1. ✅ `nomads` — full-file download from `nomads.ncep.noaa.gov`
+2. ✅ `nomads_filter` — server-side subset via `filter_gfs_0p25.pl`
+3. ⬜ `aws_s3` — byte-range from `noaa-gfs-bdp-pds` (boto3)
+4. ⬜ `gcloud_storage` — byte-range from `global-forecast-system` (HTTPS public)
+5. ⬜ `azure_blob` — byte-range from `noaagfs.blob.core.windows.net` (HTTPS public)
+6. ⬜ `rda` — NCAR RDA authenticated download (0.25° and 1°)
 
 ## Layer 2 — `sharktopus.fetch`
 

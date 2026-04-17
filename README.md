@@ -50,6 +50,67 @@ records = parse_idx(open("in.grib2.idx").read())
 ranges = byte_ranges(records, wanted={"TMP:500 mb", "UGRD:850 mb"}, total_size=524_288_000)
 ```
 
+### Three ways to drive a batch
+
+`sharktopus.fetch_batch()` is the orchestrator equivalent to CONVECT's
+`download_batch()`. Three equivalent ways to invoke it:
+
+**(a) Python import**
+
+```python
+import sharktopus
+
+sharktopus.fetch_batch(
+    timestamps=["2024010200", "2024010206"],
+    lat_s=-28, lat_n=-18, lon_w=-48, lon_e=-36,
+    ext=24, interval=3,
+    priority=["nomads_filter", "nomads"],
+    variables=["TMP", "UGRD", "VGRD", "HGT"],     # nomads_filter
+    levels=["500 mb", "850 mb", "surface"],
+)
+```
+
+**(b) Command line** (CLI flags mirror CONVECT's `download_batch_cli.py`)
+
+```bash
+sharktopus \
+    --start 2024010200 --end 2024010318 --step 6 \
+    --ext 24 --interval 3 \
+    --lat-s -28 --lat-n -18 --lon-w -48 --lon-e -36 \
+    --priority nomads_filter nomads \
+    --vars TMP UGRD VGRD HGT \
+    --levels "500 mb" "850 mb" surface
+```
+
+**(c) INI config file**
+
+```ini
+# my_run.ini
+[gfs]
+start = 2024010200
+end   = 2024010318
+step  = 6
+ext   = 24
+interval = 3
+lat_s = -28
+lat_n = -18
+lon_w = -48
+lon_e = -36
+priority  = nomads_filter, nomads
+variables = TMP, UGRD, VGRD, HGT
+levels    = 500 mb, 850 mb, surface
+```
+
+```bash
+sharktopus --config my_run.ini                # use file as-is
+sharktopus --config my_run.ini --priority nomads  # override one key
+```
+
+Precedence is **CLI flag > config file > built-in defaults**, matching
+Python stdlib conventions. Keys in the `[gfs]` section match the
+CLI flag names (dashes → underscores) and raise a clear `ConfigError`
+on typos.
+
 ### Layer 1 — NOMADS sources
 
 ```python

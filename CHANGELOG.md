@@ -5,6 +5,24 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **Layer 2 start** — `sharktopus.batch.fetch_batch(...)` orchestrator
+  iterates over cycles × forecast steps and falls back across a
+  `priority=[...]` list of sources on
+  `SourceUnavailable`. Mirrors CONVECT's `menu_gfs.download_batch` call
+  signature (separate `lat_s/lat_n/lon_w/lon_e` floats; optional
+  `on_step_ok` / `on_step_fail` callbacks). Source registry is a plain
+  dict; `register_source(name, fn)` adds entries.
+  `sharktopus.generate_timestamps(start, end, step)` is the CONVECT
+  helper, re-exported at the top level.
+- **CLI** `sharktopus` (`sharktopus.cli:main`) — flag names match
+  CONVECT's `download_batch_cli.py` (`--timestamps` XOR
+  `--start/--end/--step`, `--ext`, `--interval`, `--lat-s/n/w/e`,
+  `--priority`). Extras: `--config`, `--dest`, `--root`, `--vars`,
+  `--levels`, `--pad-lon`, `--pad-lat`, `--product`.
+- **Config loader** `sharktopus.config.load_config(path)` reads an INI
+  file with a single `[gfs]` section. Keys mirror CLI flag names,
+  lists use comma (or whitespace) separation, unknown keys raise
+  `ConfigError`. Precedence when using the CLI: flag > config > default.
 - `sharktopus.paths` — default output-path convention mirroring
   CONVECT's `/gfsdata/` layout:
   `<root>/{fcst|anls}/<YYYYMMDDHH>/<bbox_tag>/`, where `<bbox_tag>` is

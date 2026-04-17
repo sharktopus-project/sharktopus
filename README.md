@@ -12,9 +12,22 @@ layer for free-tier distributed cropping.
 ## Install
 
 ```bash
-# Requires wgrib2 on PATH for most operations (verify, crop, filter)
-pip install -e .
+# Platform wheel (Linux x86_64 today; more platforms coming) — wgrib2
+# is bundled inside the wheel, no system install needed:
+pip install sharktopus
+
+# Source install — you need to bring your own wgrib2:
+pip install sharktopus --no-binary sharktopus
+# then one of:
+#   conda install -c conda-forge wgrib2
+#   apt install wgrib2
+#   export SHARKTOPUS_WGRIB2=/path/to/wgrib2
 ```
+
+Resolution order at runtime: explicit `wgrib2=...` argument →
+`$SHARKTOPUS_WGRIB2` → bundled binary under
+`site-packages/sharktopus/_bin/` → `$PATH`. A clear `WgribNotFoundError`
+with install hints is raised when nothing works.
 
 ## Quick start
 

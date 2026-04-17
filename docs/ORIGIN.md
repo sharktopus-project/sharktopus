@@ -71,6 +71,17 @@ WRF grid and needs data slightly outside the WRF outer domain.
   we consider WRF-safe). CONVECT's 5°-everywhere is still reachable
   via `pad_lon=5, pad_lat=5`.
 
+## wgrib2 binary
+
+CONVECT ships its own `wgrib2` binary under `images/azure_gfs/wgrib2`
+(compiled by `images/azure_gfs/build_wgrib2.sh`) with optional features
+disabled so it depends only on base-system libs. `sharktopus` reuses
+the same recipe in `scripts/build_wgrib2.sh` and bundles the resulting
+binary inside the platform wheel via a Hatchling build hook
+(`hatch_build.py`). Resolution at runtime is centralised in
+`sharktopus._wgrib2` (explicit arg → `$SHARKTOPUS_WGRIB2` → bundled →
+`$PATH`); all Layer 0 / Layer 1 functions call through it.
+
 ## Intentional differences
 
 - **`bbox` convention.** CONVECT passes `lat_s, lat_n, lon_w, lon_e` as four

@@ -306,8 +306,9 @@ sharktopus/
 ### Decisões de design (marcar resolvidas à medida que confirmadas)
 
 - [ ] **Nome PyPI**: `sharktopus` (provável) — checar em pypi.org antes do primeiro push.
-- [ ] **Build backend**: hatchling. (inclinação forte)
-- [ ] **Python mínimo**: 3.10.
+- [x] **Build backend**: hatchling (confirmado 2026-04-17 (e); build hook custom em
+  `hatch_build.py` para platform-tag do wheel quando `_bin/wgrib2` existe).
+- [x] **Python mínimo**: 3.10 (declarado em `pyproject.toml`).
 - [ ] **Extras**:
   - base: `requests`, `tomli`/`tomllib` — fontes HTTP puras (NOMADS, nomads_filter, GCloud, Azure) funcionam
   - `[aws]`: `boto3` (para `sources.aws_s3` + `deploy.aws` + `cloud.aws`)
@@ -317,11 +318,14 @@ sharktopus/
   - `[cli]`: `rich`, `prompt-toolkit`
   - `[web]`: `fastapi`, `uvicorn`
   - `[all]`: tudo
-- [ ] **wgrib2 no wheel**: linux_x86_64 dentro de `package_data`; outras plataformas
-  emitem aviso e desabilitam funções que precisam dele. (alternativa: depender do
-  `eccodes` puro, mas isso é um mundo de dor).
-- [ ] **Bbox convention**: `(lon_w, lon_e, lat_s, lat_n)` (wgrib2) vs Herbie usa
-  `(lon_min, lon_max, lat_min, lat_max)` idêntico. Mantemos.
+- [x] **wgrib2 no wheel**: compilado em CI (`quay.io/pypa/manylinux_2_28_x86_64`)
+  a partir da fonte upstream com features opcionais desativadas (AEC, OpenJPEG,
+  NetCDF), empacotado em `src/sharktopus/_bin/wgrib2`, wheel tagueado
+  `py3-none-linux_x86_64` (auditwheel promove para manylinux_2_28 na CI).
+  Fallback via `$SHARKTOPUS_WGRIB2` ou `$PATH` para instalações source-only.
+  aarch64/macOS ainda são TODO no workflow (2026-04-17 (e)).
+- [x] **Bbox convention**: `(lon_w, lon_e, lat_s, lat_n)` (wgrib2 / Herbie) — adotada
+  em toda a API pública.
 - [ ] **Path destino default**: `~/.cache/sharktopus/gfs/{date}{cycle}/{bbox_tag}/`
   vs `/gfsdata/...` (atual). Primeiro é portável.
 
@@ -363,7 +367,7 @@ Depois segue: `gcloud_storage → azure_blob → rda`.
 
 | # | Blocker | Impacto | Ideia |
 |---|---|---|---|
-| B1 | Azure wgrib2 estático não reprodutível | Azure deploy só funciona com binário commitado, que veio de deploy manual perdido | Compilar em CI (GH Actions, ubuntu-latest) e publicar como release asset; wheel baixa do release |
+| ~~B1~~ | ~~wgrib2 estático não reprodutível~~ | ~~Azure deploy e wheel distribuível só funcionam com binário manualmente compilado~~ | **Resolvido 2026-04-17 (e)** — `scripts/build_wgrib2.sh` compila a partir do upstream NOAA com features opcionais off; `.github/workflows/build-wheels.yml` roda em manylinux_2_28 e gera o wheel; `scripts/bundle_wgrib2.sh` + `hatch_build.py` montam o artefato. Resolver em `sharktopus._wgrib2` escolhe entre binário bundled / `$SHARKTOPUS_WGRIB2` / `$PATH` |
 | B2 | `menu_gfs.py` tem URLs hardcoded (linhas 29–50) | Quem fizer `setup()` em conta nova não usa seus próprios endpoints | Substituir constantes por lookup em `sharktopus.config.load()`. Vira Camada 3 |
 | B3 | Scripts atuais assumem paths do container (`/gfsdata`, `/experiments`) | Não portáveis fora do container fetcher | Na migração para `sharktopus.sources.*`, parametrizar `dest=` e remover `/experiments` (usar argparse externo) |
 | B4 | Free-tier tracking usa `/gfsdata_store/.lambda_invocations` | Não portável | Mover para `~/.cache/sharktopus/quota.json` |
@@ -372,6 +376,41 @@ Depois segue: `gcloud_storage → azure_blob → rda`.
 ---
 
 ## Log de sessões
+
+### 2026-04-17 (e) — Empacotamento wgrib2 + CI de wheel
+- **Resolver** (`sharktopus._wgrib2`): ordem explicit → `$SHARKTOPUS_WGRIB2` →
+  bundled em `_bin/` → `$PATH`. `WgribNotFoundError` com mensagem que aponta
+  pros três caminhos de instalação. Todas as funções `grib.*` passaram a
+  usar `wgrib2: str | None = None` e resolver internamente.
+- **Hatch hook** (`hatch_build.py`): detecta binário em `src/sharktopus/_bin/`
+  em build time e troca o wheel de `py3-none-any` para `py3-none-<platform>`.
+  Sdist segue puro e exclui o binário.
+- **Scripts**:
+  - `scripts/build_wgrib2.sh` — compila upstream NOAA com
+    `USE_AEC=0 USE_OPENJPEG=0 USE_NETCDF3=0 USE_NETCDF4=0` (adaptado do
+    `~/CONVECT/images/azure_gfs/build_wgrib2.sh`); resultado depende só
+    de libs base-system.
+  - `scripts/bundle_wgrib2.sh` — dev local: materializa binário em
+    `_bin/` (via `$SHARKTOPUS_WGRIB2_SRC`, `$SHARKTOPUS_WGRIB2_URL`, ou
+    fallback CONVECT), valida portabilidade via `ldd` com whitelist,
+    roda `python -m build --wheel` e tenta `auditwheel repair`.
+- **CI** (`.github/workflows/build-wheels.yml`): Linux x86_64 dentro de
+  `quay.io/pypa/manylinux_2_28_x86_64`, instala gfortran, compila wgrib2,
+  chama o bundle script, sobe `sharktopus-linux-x86_64/*.whl` como artifact.
+  Não publica no PyPI ainda — será manual depois da primeira inspeção.
+  Trigger: push de tag `v*` ou workflow_dispatch. aarch64/macOS stubados.
+- **Comportamento novo em `grib.verify`**: passou a levantar `GribError`
+  quando o arquivo é não-vazio mas wgrib2 parseia zero registros (wgrib2
+  v3.1.3 não sinaliza erro em input corrompido; antes isso virava `0`
+  silenciosamente).
+- **Smoke end-to-end local**: `bundle_wgrib2.sh` usando fallback CONVECT
+  produziu `sharktopus-0.1.0-py3-none-linux_x86_64.whl` com binário
+  dentro; `pip install` em venv scratch resolveu o binário bundled,
+  `grib.verify` + `grib.crop` rodaram num GFS 0.25° real
+  (`/data/comum/datasets/gfsdata/fcst/2023011318/.../gfs.0p25.2023011318.f006.grib2`).
+- 10 novos testes no `test_wgrib2_resolver.py`; suite agora em **61 passam,
+  1 skip**.
+- **Blocker B1 resolvido.** Commits `29c5c42`, `ae3eb55`.
 
 ### 2026-04-17 (d) — Camada 1 iniciada: `nomads` + `nomads_filter`
 - Sub-pacote `sharktopus.sources` criado com três módulos:

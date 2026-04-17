@@ -11,6 +11,22 @@ All notable changes to this project will be documented here.
 - `sharktopus.grib.DEFAULT_WRF_PAD_LON` / `DEFAULT_WRF_PAD_LAT`
   constants (both `2.0°` = 8 grid cells at 0.25°, the minimum margin
   we consider WRF-safe for WPS / metgrid interpolation).
+- `sharktopus._wgrib2` resolver module with public
+  `resolve_wgrib2 / ensure_wgrib2 / bundled_wgrib2 / WgribNotFoundError`.
+  Resolution order: explicit arg → `$SHARKTOPUS_WGRIB2` → bundled
+  binary under `_bin/` → `$PATH`.
+- `hatch_build.py` custom build hook that flips the wheel to
+  `py3-none-<platform>` when a wgrib2 binary is present under
+  `src/sharktopus/_bin/` at build time.
+- `scripts/build_wgrib2.sh` — compile wgrib2 from NOAA upstream with
+  optional features (AEC, OpenJPEG, NetCDF) disabled, producing a
+  binary that depends only on base-system libs.
+- `scripts/bundle_wgrib2.sh` — drive the full local wheel build
+  (materialise binary → portability check → `python -m build` →
+  `auditwheel repair`).
+- `.github/workflows/build-wheels.yml` — CI that compiles wgrib2 and
+  produces a `manylinux_2_28_x86_64` wheel as an artifact on `v*` tags
+  and manual dispatch. Does not publish to PyPI yet.
 
 ### Changed
 - `sources.nomads.fetch_step` now expands *bbox* by `pad_lon` / `pad_lat`
@@ -21,6 +37,13 @@ All notable changes to this project will be documented here.
   isotropic `pad_deg` parameter with independent `pad_lon` / `pad_lat`,
   both defaulting to 2°. Callers reproducing CONVECT's runs should pass
   `pad_lon=5, pad_lat=5` explicitly.
+- All `grib.*` functions now take `wgrib2: str | None = None` (was
+  `= "wgrib2"`). `None` triggers the resolver; passing a path keeps
+  the explicit-override behavior.
+- `grib.verify` raises `GribError` when wgrib2 parses zero records
+  from a non-empty file. wgrib2 v3.1.3 stays silent on malformed
+  input, so the previous behavior would silently return `0` on a
+  corrupt or non-GRIB2 file.
 
 ## [0.1.0] — 2026-04-17
 

@@ -122,6 +122,55 @@ def test_fetch_step_default_pad_expands_crop(tmp_path, monkeypatch):
     assert crop_calls == [(-48, -37, -26, -19)]
 
 
+def test_fetch_step_defaults_to_convention_dir(tmp_path, monkeypatch):
+    """dest=None → file lands under <root>/fcst/YYYYMMDDHH/<bbox_tag>/."""
+    opener = _make_opener(b"GRIB" + b"\x00" * 100 + b"7777")
+    import sharktopus.sources.base as base_mod
+    monkeypatch.setattr(base_mod.urllib.request, "urlopen", opener)
+    monkeypatch.setattr("sharktopus.sources.nomads.grib.have_wgrib2",
+                        lambda *a, **k: False)
+    monkeypatch.setenv("SHARKTOPUS_DATA", str(tmp_path))
+
+    out = nomads.fetch_step(TODAY, "00", 6)
+    expected_dir = tmp_path / "fcst" / f"{TODAY}00" / "90S_180W_90N_180E"
+    assert out == expected_dir / "gfs.t00z.pgrb2.0p25.f006"
+    assert out.is_file()
+
+
+def test_fetch_step_default_uses_bbox_tag(tmp_path, monkeypatch):
+    """With a bbox, dest=None routes into the per-bbox subdir."""
+    opener = _make_opener(b"GRIB" + b"\x00" * 100 + b"7777")
+    import sharktopus.sources.base as base_mod
+    monkeypatch.setattr(base_mod.urllib.request, "urlopen", opener)
+    monkeypatch.setattr("sharktopus.sources.nomads.grib.have_wgrib2",
+                        lambda *a, **k: False)
+    monkeypatch.setattr(
+        "sharktopus.sources.nomads.grib.crop",
+        lambda src, dst, bbox, wgrib2="wgrib2": dst,
+    )
+    monkeypatch.setenv("SHARKTOPUS_DATA", str(tmp_path))
+
+    # bbox in wgrib2 order (lon_w, lon_e, lat_s, lat_n)
+    out = nomads.fetch_step(
+        TODAY, "00", 6,
+        bbox=(-52.0, -28.0, -32.0, -13.0), pad_lon=0, pad_lat=0,
+    )
+    assert out.parent == tmp_path / "fcst" / f"{TODAY}00" / "32S_52W_13S_28W"
+
+
+def test_fetch_step_root_override(tmp_path, monkeypatch):
+    opener = _make_opener(b"GRIB" + b"\x00" * 100 + b"7777")
+    import sharktopus.sources.base as base_mod
+    monkeypatch.setattr(base_mod.urllib.request, "urlopen", opener)
+    monkeypatch.setattr("sharktopus.sources.nomads.grib.have_wgrib2",
+                        lambda *a, **k: False)
+    monkeypatch.setenv("SHARKTOPUS_DATA", str(tmp_path / "from-env"))
+
+    custom = tmp_path / "explicit-root"
+    out = nomads.fetch_step(TODAY, "00", 6, root=custom)
+    assert out.parent == custom / "fcst" / f"{TODAY}00" / "90S_180W_90N_180E"
+
+
 def test_fetch_step_404_raises_source_unavailable(tmp_path, monkeypatch):
     import urllib.error
     import sharktopus.sources.base as base_mod

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import grib
+from .. import grib, paths
 from .base import (
     SourceUnavailable,
     canonical_filename,
@@ -52,7 +52,8 @@ def fetch_step(
     cycle: str,
     fxx: int,
     *,
-    dest: str | Path,
+    dest: str | Path | None = None,
+    root: str | Path | None = None,
     bbox: grib.Bbox | None = None,
     pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
     pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
@@ -73,8 +74,15 @@ def fetch_step(
         Run cycle, one of ``"00"``, ``"06"``, ``"12"``, ``"18"``.
     fxx : int
         Forecast hour (0 for analysis).
-    dest : path-like
-        Destination directory. Created if missing.
+    dest : path-like, optional
+        Destination directory. Created if missing. When omitted, the
+        file lands under
+        ``<root>/fcst/<YYYYMMDDHH>/<bbox_tag>/`` — see
+        :mod:`sharktopus.paths`.
+    root : path-like, optional
+        Override the root of the default convention. Ignored when *dest*
+        is given. Falls through to ``$SHARKTOPUS_DATA`` and finally
+        :data:`sharktopus.paths.DEFAULT_ROOT` (``~/.cache/sharktopus``).
     bbox : tuple, optional
         ``(lon_w, lon_e, lat_s, lat_n)``. When given, the full file is
         downloaded and then cropped locally with
@@ -115,7 +123,13 @@ def fetch_step(
     """
     check_retention(date, days=RETENTION_DAYS)
     url = build_url(date, cycle, fxx, product=product)
-    dest_dir = Path(dest)
+    if dest is None:
+        dest_dir = paths.output_dir(
+            date=date, cycle=cycle, bbox=bbox, mode="fcst", root=root,
+        )
+    else:
+        dest_dir = Path(dest)
+        dest_dir.mkdir(parents=True, exist_ok=True)
     final = dest_dir / canonical_filename(cycle, fxx, product=product)
 
     stream_download(

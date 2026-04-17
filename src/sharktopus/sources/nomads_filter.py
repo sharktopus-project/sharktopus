@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlencode
 
-from .. import grib
+from .. import grib, paths
 from .base import (
     SourceUnavailable,
     canonical_filename,
@@ -131,10 +131,11 @@ def fetch_step(
     cycle: str,
     fxx: int,
     *,
-    dest: str | Path,
     bbox: grib.Bbox,
     variables: Iterable[str],
     levels: Iterable[str],
+    dest: str | Path | None = None,
+    root: str | Path | None = None,
     product: str = "pgrb2.0p25",
     pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
     pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
@@ -157,6 +158,10 @@ def fetch_step(
     :data:`sharktopus.grib.DEFAULT_WRF_PAD_LON`). *hourly* selects the
     ``filter_gfs_0p25_1hr.pl`` endpoint (fxx 0–120 hourly), otherwise
     the default 3-hourly endpoint is used.
+
+    When *dest* is omitted, the file lands under
+    ``<root>/fcst/<YYYYMMDDHH>/<bbox_tag>/``; see
+    :mod:`sharktopus.paths` for the root-resolution rules.
     """
     check_retention(date, days=RETENTION_DAYS)
     url = build_url(
@@ -164,7 +169,13 @@ def fetch_step(
         variables=variables, levels=levels, bbox=bbox,
         product=product, pad_lon=pad_lon, pad_lat=pad_lat, hourly=hourly,
     )
-    dest_dir = Path(dest)
+    if dest is None:
+        dest_dir = paths.output_dir(
+            date=date, cycle=cycle, bbox=bbox, mode="fcst", root=root,
+        )
+    else:
+        dest_dir = Path(dest)
+        dest_dir.mkdir(parents=True, exist_ok=True)
     final = dest_dir / canonical_filename(cycle, fxx, product=product)
 
     stream_download(

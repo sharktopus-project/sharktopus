@@ -5,6 +5,18 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- `sharktopus.paths` — default output-path convention mirroring
+  CONVECT's `/gfsdata/` layout:
+  `<root>/{fcst|anls}/<YYYYMMDDHH>/<bbox_tag>/`, where `<bbox_tag>` is
+  `lat_s_lon_w_lat_n_lon_e` with each coord formatted as
+  `{abs:.0f}{N|S|E|W}` (e.g. `32S_52W_13S_28W`) and `<root>` defaults
+  to `~/.cache/sharktopus`. Overridable via `$SHARKTOPUS_DATA` or a
+  `root=` kwarg. `None` bbox produces the global
+  `90S_180W_90N_180E` tag.
+- `sources.nomads.fetch_step` and `sources.nomads_filter.fetch_step`
+  now take an optional `root=` kwarg and accept `dest=None` (new
+  default) — in that case the file lands in the convention directory
+  above. Passing an explicit `dest=` preserves the old behavior.
 - `sharktopus.grib.expand_bbox(bbox, pad_lon, pad_lat)` — pure helper
   that grows a bbox by independent lon/lat pads (clamps lat to ±90°,
   rejects negative pads).

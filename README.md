@@ -55,21 +55,37 @@ ranges = byte_ranges(records, wanted={"TMP:500 mb", "UGRD:850 mb"}, total_size=5
 ```python
 from sharktopus.sources import nomads, nomads_filter
 
-# Option A — full file (~500 MB), cropped locally afterwards
+# Option A — full file (~500 MB), cropped locally afterwards.
+# Omitting dest= routes the file into ~/.cache/sharktopus/fcst/YYYYMMDDHH/<bbox_tag>/
+# (CONVECT-compatible layout). Set $SHARKTOPUS_DATA or pass root=... to move
+# the root without touching callers.
 path = nomads.fetch_step(
     "20240417", "00", 6,
-    dest="/tmp/gfs",
     bbox=(-45, -40, -25, -20),   # lon_w, lon_e, lat_s, lat_n
 )
 
-# Option B — server-side subset (tiny download, no wgrib2 crop needed)
+# Option B — server-side subset (tiny download, no wgrib2 crop needed).
 path = nomads_filter.fetch_step(
     "20240417", "00", 6,
-    dest="/tmp/gfs",
     bbox=(-45, -40, -25, -20),
     variables=["TMP", "UGRD", "VGRD", "HGT"],
     levels=["500 mb", "850 mb", "surface"],
 )
+
+# Opt out of the convention any time:
+nomads.fetch_step(..., dest="/scratch/my-run")
+```
+
+Default layout (drop-in compatible with CONVECT's `/gfsdata/` tree):
+
+```
+<root>/                                   # $SHARKTOPUS_DATA or ~/.cache/sharktopus
+└── fcst/
+    └── 20240417-00 → 2024041700/
+        ├── 90S_180W_90N_180E/            # no bbox = global tag
+        │   └── gfs.t00z.pgrb2.0p25.f006
+        └── 25S_45W_20S_40W/              # lat_s_lon_w_lat_n_lon_e
+            └── gfs.t00z.pgrb2.0p25.f006
 ```
 
 Both sources apply a **default WRF-safe buffer of 2° on each side** of

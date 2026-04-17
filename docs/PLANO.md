@@ -1,0 +1,436 @@
+# Plano: Biblioteca Python `sharktopus`
+
+Documento vivo de acompanhamento da conversão do sub-sistema Sharktopus (fetcher
+GFS multinuvem do CONVECT) em uma biblioteca Python instalável via `pip`.
+
+**Mora dentro do próprio repo** (`docs/PLANO.md`), ao lado de `ROADMAP.md`
+(visão curta do mapa de camadas) e `ORIGIN.md` (mapeamento função→CONVECT).
+O CONVECT (`~/CONVECT`) continua sendo a fonte de cada port.
+
+> **Como usar este doc**: cada sessão atualiza a seção **"Status atual"** com o que
+> foi feito, move itens de **"Próximo passo"** para **"Feito"** conforme avançamos,
+> e anota decisões de design + blockers no **"Log de sessões"** ao final.
+
+---
+
+## Contexto
+
+**O que é Sharktopus.** Sub-sistema cloud-native dentro do CONVECT que:
+
+1. Faz deploy automático (1 comando) de funções serverless nas 3 nuvens (AWS
+   Lambda, Google Cloud Run, Azure Functions) que recortam GFS no próprio provedor.
+2. Recorte em nuvem reduz o download de ~500 MB → ~2 MB por timestep.
+3. Distribui requisições entre nuvens em round-robin para manter cada uma no free
+   tier (≈400k GB·s/mês cada).
+
+**Mas também (descoberto na sessão 2026-04-17):** já existem **5 fontes locais
+plenamente funcionais** — NOMADS direto, NOMADS filter (grib_filter.pl), AWS S3
+byte-range, GCloud Storage byte-range, Azure Blob byte-range. Essas baixam
+direto do bucket público e cortam com wgrib2 local. **Nenhuma delas depende
+do deploy serverless.** Isso muda a estratégia: começamos a biblioteca pela
+parte local (sem credenciais, sem deploy), e a parte serverless entra como
+camada opcional.
+
+**Inspiração de organização: Herbie** (herbie.readthedocs.io). Copiamos:
+- Construtor único com `date/model/product/fxx`.
+- Lista de prioridade de fontes com fallback automático (`priority=[...]`).
+- Config em `~/.config/sharktopus/config.toml` + env vars.
+- CLI que espelha a API Python.
+
+Descartamos: plotting, HRRR/ECMWF/etc, inventários via "search strings". Foco
+restrito a **GFS download + recorte** (local e opcionalmente em nuvem).
+
+---
+
+## Estratégia de construção em camadas
+
+Constrói-se **de baixo pra cima**. Cada camada é testada isoladamente antes
+da próxima. Camada N+1 depende de N; as camadas cloud (3, 4) são extras
+opcionais — uma pessoa que só quer baixar GFS localmente usa camadas 0–2.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 5. CLI & Menu interativo    (sharktopus.cli)                │
+├──────────────────────────────────────────────────────────────┤
+│ 4. Deploy serverless [extra] (sharktopus.deploy)            │ — setup("aws"|...)
+├──────────────────────────────────────────────────────────────┤
+│ 3. Invoke serverless [extra] (sharktopus.cloud)             │ — invoke()
+├──────────────────────────────────────────────────────────────┤
+│ 2. Orquestrador fetch        (sharktopus.fetch)             │ — prioridade, cache, paralelismo
+├──────────────────────────────────────────────────────────────┤
+│ 1. Fontes locais             (sharktopus.sources.*)         │ — 5 fontes
+├──────────────────────────────────────────────────────────────┤
+│ 0. Utilidades wgrib2 + idx   (sharktopus.grib)              │ — crop, filter, verify, parse_idx
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Camada 0 — utilidades wgrib2 + .idx (puro, sem rede)
+
+Funções miúdas que hoje estão **duplicadas** entre os 5 scripts de download.
+Ficam num único módulo e todas as camadas acima consomem daqui.
+
+Candidatas a unificar (extraídas do levantamento dos scripts):
+
+| Função unificada | Origens atuais |
+|---|---|
+| `sharktopus.grib.crop(src, dst, bbox)` | `crop_grib()` em `download_aws_gfs_0p25_full4.py`, `download_gcloud_gfs_0p25.py`, `download_azure_gfs_0p25.py`; `_crop_region()` em `download_rda_gfs.py` |
+| `sharktopus.grib.filter(src, dst, vars, levels)` | `filter_grib_by_vars_levels()` em NOMADS e AWS |
+| `sharktopus.grib.verify(path) → int` (# registros) | `run_verification()` em 3 scripts, `_verify_grib()` no RDA |
+| `sharktopus.grib.parse_idx(text) → list[Record]` | `read_idx()` em AWS, GCloud, Azure |
+| `sharktopus.grib.byte_ranges(records, wanted)` | `compute_ranges()` em AWS, GCloud, Azure |
+| `sharktopus.grib.rename_link_abs/rel(path)` | `create_link_abs/rel()` e `rename_grib()` em NOMADS e AWS |
+
+### Camada 1 — fontes locais (`sharktopus.sources.*`)
+
+Cinco módulos, **uma interface comum**:
+
+```python
+def fetch_step(date, cycle, fxx, *, dest, bbox=None, vars_levels=None,
+               timeout=300) -> Path:
+    """Baixa 1 timestep. Retorna o Path do .grib2 final.
+    Levanta SourceUnavailable se o step não existe ainda nesse mirror."""
+```
+
+Mapeamento 1:1 com o que existe hoje:
+
+| Módulo alvo | Arquivo atual | Observações |
+|---|---|---|
+| `sharktopus.sources.nomads` | `download_nomades_gfs_0p25.py` (444+ linhas) | full-file; útil quando `fxx` é novo e ainda não está na AWS |
+| `sharktopus.sources.nomads_filter` | `download_nomads_filter.py` (52 linhas) | usa `grib_filter.pl` com `subregion=1&...` (crop server-side, sem wgrib2) |
+| `sharktopus.sources.aws_s3` | `download_aws_gfs_0p25_full4.py` (401+ linhas) | byte-range via `.idx`, mais rápido; precisa `boto3` ou `s5cmd` |
+| `sharktopus.sources.gcloud_storage` | `download_gcloud_gfs_0p25.py` (306+ linhas) | byte-range via HTTPS público; sem auth |
+| `sharktopus.sources.azure_blob` | `download_azure_gfs_0p25.py` (204+ linhas) | byte-range via HTTPS público; sem auth |
+| `sharktopus.sources.rda` | `download_rda_gfs.py` (323+ linhas) + `download_rda_gfs_1deg.py` | requer login RDA; resolução 0.25° + 1° |
+
+### Camada 2 — orquestrador (`sharktopus.fetch`)
+
+A função "Herbie-like" que o usuário chama:
+
+```python
+import sharktopus as st
+
+path = st.fetch(
+    "2024-01-21 00Z",
+    fxx=range(0, 13, 3),             # ou int único
+    product="pgrb2.0p25",            # default
+    bbox=(-45, -40, -25, -20),       # (lon_w, lon_e, lat_s, lat_n) — padrão wgrib2
+    vars=["TMP","UGRD","VGRD"],      # opcional
+    levels=["500 mb","850 mb"],      # opcional
+    priority=["aws_s3","gcloud_storage","nomads_filter","nomads","azure_blob"],
+    dest="~/data/gfs",               # default do config.toml
+    parallel=4,
+)
+```
+
+Responsabilidades:
+- Itera `fxx`, para cada step tenta as fontes na ordem de `priority`.
+- Fallback automático em `SourceUnavailable`.
+- Cache local (pula se arquivo já existe e passa `verify`).
+- Paralelismo com `ThreadPoolExecutor` (já existe nos scripts).
+
+### Camada 3 — invocação serverless (`sharktopus.cloud`) — extra
+
+Só faz sentido depois que `setup()` rodou. Invoca a Lambda/CloudRun/Function
+deployada, que corta no provedor e devolve o GRIB2 recortado (ou URL S3/GCS).
+
+```python
+path = st.cloud.fetch(
+    "2024-01-21 00Z", fxx=6, bbox=(...),
+    provider="aws",   # ou "gcloud", "azure", "auto" (round-robin c/ quota tracking)
+)
+```
+
+O código de invocação já existe, espalhado no `menu_gfs.py` (linhas ~29–50 e
+funções `invoke_lambda`, `invoke_cloudrun`, `invoke_azurefunc`). **Blocker B2**:
+essas funções leem URLs de constantes hardcoded — migração precisa trocar por
+`sharktopus.config.load()`.
+
+### Camada 4 — deploy (`sharktopus.deploy`) — extra
+
+Já existe e funciona (AWS + GCloud testados). Basicamente mover
+`orchestration/deploy/*.py` → `src/sharktopus/deploy/*.py` e re-exportar o
+`setup(provider)`.
+
+### Camada 5 — CLI + menu interativo (`sharktopus.cli`)
+
+Port do `menu_gfs.py` (2712 linhas) como módulo `sharktopus.cli.menu`, com
+entry point `sharktopus` no `pyproject.toml`. **Só depois** das camadas 0–4
+estáveis, porque o menu é o consumidor final de tudo isso.
+
+---
+
+## API pública alvo (imports explícitos)
+
+Três estilos coexistem, como no Herbie:
+
+### (a) Top-level one-shot — 80% dos casos
+```python
+import sharktopus as st
+path = st.fetch("2024-01-21 00Z", fxx=6, bbox=(-45,-40,-25,-20))
+ds = st.open_xarray(path)    # opcional: wrapper de cfgrib
+```
+
+### (b) Fonte específica — controle fino ou debug
+```python
+from sharktopus.sources import aws_s3, nomads_filter
+p = aws_s3.fetch_step("20240121", "00", 6, dest="~/data",
+                       bbox=(-45,-40,-25,-20))
+p = nomads_filter.fetch_step("20240121", "00", 6, dest="~/data",
+                              bbox=(-45,-40,-25,-20),
+                              vars=["TMP","UGRD","VGRD"],
+                              levels=["500 mb","850 mb"])
+```
+
+### (c) Utilidades wgrib2 isoladas — para quem já tem o GRIB2
+```python
+from sharktopus.grib import crop, filter, verify, parse_idx
+crop("in.grib2", "out.grib2", bbox=(-45,-40,-25,-20))
+n = verify("out.grib2")                  # nº de registros
+records = parse_idx(open("in.grib2.idx").read())
+```
+
+### (d) Cloud (extra) — só se `setup()` já rodou
+```python
+from sharktopus.deploy import setup
+setup("aws")                              # 1x por conta
+
+from sharktopus.cloud import invoke
+path = invoke("aws", "20240121", "00", 6, bbox=(-45,-40,-25,-20))
+```
+
+Conversão vs Herbie:
+
+| Herbie | Sharktopus | Motivo |
+|---|---|---|
+| `H = Herbie(date, model, product, fxx)` | `st.fetch(date, fxx, product=...)` direto | Não precisamos de objeto com estado; o arquivo é o artefato |
+| `H.search(":TMP:500 mb")` | `vars=[...], levels=[...]` explícitos | Mais simples, evita DSL; o usuário vem do mundo WRF/namelist |
+| `H.xarray(":TMP")` | `st.open_xarray(path)` | Separa download de leitura |
+| `priority=['aws','nomads',...]` | Mesma coisa | Idêntico |
+| `~/.config/herbie/config.toml` | `~/.config/sharktopus/config.toml` **+** `~/.sharktopus/config.json` (deploy) | Dois arquivos: um do usuário (TOML, editável), um de estado de deploy (JSON, gerado) |
+
+---
+
+## Plano de validação por camada
+
+Antes de mover/refatorar, **roda cada função no ambiente atual** com um caso
+conhecido e registra o resultado. Caso teste canônico: **2024-01-21 00Z, fxx=6,
+bbox=(-45,-40,-25,-20) (sudeste do Brasil)** — é o mesmo caso já validado
+no pipeline de radar DA (ver `project_radar_da_outputs_inventory`).
+
+### Validação Camada 0 (utilidades)
+- Extrair `crop_grib`, `filter_grib_by_vars_levels`, `run_verification`, `read_idx`
+  das 3 fontes em AWS/GCloud/Azure para um `grib_utils.py` de teste.
+- Smoke: pegar um GRIB2 já baixado em `/gfsdata/...`, rodar `crop()` → comparar
+  com saída do wgrib2 manual; rodar `verify()` → comparar nº de registros.
+- Critério: todas as 6 utilidades executam sem erro e retornam o mesmo resultado
+  que as versões atuais.
+
+### Validação Camada 1 (fontes locais, uma por vez)
+
+Para cada fonte, **isolar um pequeno script** que importa só o `download_gfs`
+daquele arquivo e roda o caso canônico:
+
+| Fonte | Script de validação | Tempo esperado |
+|---|---|---|
+| NOMADS direto | `python -c "from download_nomades_gfs_0p25 import download_gfs; download_gfs(date='20240121', ref='00', ext='6h', intr='6h', lat_s=-25, lat_n=-20, lon_w=-45, lon_e=-40)"` | ~30s/step |
+| NOMADS filter | idem `download_nomads_filter` | ~5s/step (crop server-side) |
+| AWS S3 | idem `download_aws_gfs_0p25_full4` | ~10s/step (byte-range) |
+| GCloud Storage | idem `download_gcloud_gfs_0p25` | ~10s/step |
+| Azure Blob | idem `download_azure_gfs_0p25` | ~10s/step |
+
+Blocker esperado: paths hardcoded `/gfsdata/fcst/...` e `/experiments/...`.
+Solução durante validação: `cd /tmp && mkdir -p gfsdata/fcst && ln -s /tmp/gfsdata /gfsdata`
+(hack temporário, não commitado).
+
+Critério de pronto: os 5 scripts produzem o mesmo GRIB2 recortado (diff binário
+não precisa bater, mas `verify()` tem que dar mesmo `n_records`).
+
+### Validação Camada 2 (orquestrador)
+- Montar `fetch()` minimal chamando as 5 fontes da camada 1 na ordem `priority`.
+- Simular falha injetando 503 no mirror primário → deve cair pro próximo.
+- Critério: baixa 3 steps do caso canônico com `priority=['aws_s3','nomads']`
+  e quando matamos rede pra S3, cai pro NOMADS sem intervenção.
+
+### Validação Camadas 3–4 (cloud)
+- Já validadas parcialmente (AWS ✓, GCloud ✓, Azure ✗ bloqueado no wgrib2).
+- Ver `docs/cloud_setup_report.md` para o histórico completo.
+- Nada a revalidar agora; só migrar imports quando chegar nessa fase.
+
+---
+
+## Arquitetura alvo (diretórios)
+
+```
+sharktopus/
+  pyproject.toml
+  README.md
+  LICENSE
+  src/sharktopus/
+    __init__.py              # expõe fetch, open_xarray, Config
+    config.py                # load/save ~/.config/sharktopus/config.toml
+    grib.py                  # camada 0: crop, filter, verify, parse_idx, byte_ranges
+    fetch.py                 # camada 2: orquestrador
+    sources/                 # camada 1
+      __init__.py
+      base.py                # Protocol fetch_step(...) + SourceUnavailable
+      nomads.py
+      nomads_filter.py
+      aws_s3.py
+      gcloud_storage.py
+      azure_blob.py
+      rda.py
+    cloud/                   # camada 3 [extra]
+      __init__.py            # invoke(provider, ...)
+      aws.py
+      gcloud.py
+      azure.py
+    deploy/                  # camada 4 [extra] — move de orchestration/deploy
+      __init__.py            # setup(provider)
+      aws.py
+      gcloud.py
+      azure.py
+      common.py
+    cli/                     # camada 5
+      __init__.py            # entry point sharktopus
+      menu.py
+    wgrib2/
+      wgrib2-linux_x86_64   # binário estático (blocker B1)
+  tests/
+    test_grib.py             # camada 0
+    test_sources_nomads.py   # camada 1 (live, skippable)
+    test_sources_aws.py
+    ...
+    test_fetch.py            # camada 2 (mocks)
+```
+
+### Decisões de design (marcar resolvidas à medida que confirmadas)
+
+- [ ] **Nome PyPI**: `sharktopus` (provável) — checar em pypi.org antes do primeiro push.
+- [ ] **Build backend**: hatchling. (inclinação forte)
+- [ ] **Python mínimo**: 3.10.
+- [ ] **Extras**:
+  - base: `requests`, `tomli`/`tomllib` — fontes HTTP puras (NOMADS, nomads_filter, GCloud, Azure) funcionam
+  - `[aws]`: `boto3` (para `sources.aws_s3` + `deploy.aws` + `cloud.aws`)
+  - `[gcloud]`: `google-auth`, `google-cloud-storage` (só se user quiser auth; público não precisa)
+  - `[azure]`: `azure-identity`, `azure-mgmt-web` (só para deploy)
+  - `[xarray]`: `cfgrib`, `xarray` (para `open_xarray`)
+  - `[cli]`: `rich`, `prompt-toolkit`
+  - `[web]`: `fastapi`, `uvicorn`
+  - `[all]`: tudo
+- [ ] **wgrib2 no wheel**: linux_x86_64 dentro de `package_data`; outras plataformas
+  emitem aviso e desabilitam funções que precisam dele. (alternativa: depender do
+  `eccodes` puro, mas isso é um mundo de dor).
+- [ ] **Bbox convention**: `(lon_w, lon_e, lat_s, lat_n)` (wgrib2) vs Herbie usa
+  `(lon_min, lon_max, lat_min, lat_max)` idêntico. Mantemos.
+- [ ] **Path destino default**: `~/.cache/sharktopus/gfs/{date}{cycle}/{bbox_tag}/`
+  vs `/gfsdata/...` (atual). Primeiro é portável.
+
+---
+
+## Próximo passo imediato
+
+**Camada 1 em progresso: 2/6 fontes prontas (sessão 2026-04-17 (d)).**
+Próxima fonte a portar: **`sharktopus.sources.aws_s3`** (byte-range via `.idx`
+no bucket público `noaa-gfs-bdp-pds`).
+
+Passos da próxima sessão:
+
+1. Criar `src/sharktopus/sources/aws_s3.py` portando
+   `containers/fetcher/scripts/download_aws_gfs_0p25_full4.py`. Reaproveitar
+   `grib.parse_idx` e `grib.byte_ranges` da Camada 0 — a fonte só precisa
+   (a) fetch do `.idx`, (b) compor Range requests, (c) baixar com `boto3`
+   ou HTTPS puro. Tentar **manter stdlib-only** (boto3 vira extra `[aws]`
+   opcional) — o bucket é público, dá pra usar `urllib.request` com
+   header `Range:` direto.
+2. Tests: URL do bucket + `.idx`, Range requests consolidados,
+   404→`SourceUnavailable`, fallback "sem `.idx` → baixa inteiro + crop local".
+3. Atualizar `docs/ORIGIN.md` com a linha da nova fonte e `CHANGELOG.md`.
+
+**Critério de pronto**: `pytest -q` passa, e
+```python
+from sharktopus.sources import aws_s3
+p = aws_s3.fetch_step("20240121", "00", 6, dest="/tmp",
+                       bbox=(-45,-40,-25,-20),
+                       variables=["TMP","UGRD"], levels=["500 mb"])
+```
+funciona no caso canônico.
+
+Depois segue: `gcloud_storage → azure_blob → rda`.
+
+---
+
+## Blockers conhecidos
+
+| # | Blocker | Impacto | Ideia |
+|---|---|---|---|
+| B1 | Azure wgrib2 estático não reprodutível | Azure deploy só funciona com binário commitado, que veio de deploy manual perdido | Compilar em CI (GH Actions, ubuntu-latest) e publicar como release asset; wheel baixa do release |
+| B2 | `menu_gfs.py` tem URLs hardcoded (linhas 29–50) | Quem fizer `setup()` em conta nova não usa seus próprios endpoints | Substituir constantes por lookup em `sharktopus.config.load()`. Vira Camada 3 |
+| B3 | Scripts atuais assumem paths do container (`/gfsdata`, `/experiments`) | Não portáveis fora do container fetcher | Na migração para `sharktopus.sources.*`, parametrizar `dest=` e remover `/experiments` (usar argparse externo) |
+| B4 | Free-tier tracking usa `/gfsdata_store/.lambda_invocations` | Não portável | Mover para `~/.cache/sharktopus/quota.json` |
+| ~~B5~~ | ~~6 utilidades wgrib2 duplicadas entre 3–4 scripts~~ | ~~Cada bugfix precisa ser aplicado em N lugares~~ | **Resolvido 2026-04-17 (c)** — estão em `sharktopus.grib` |
+
+---
+
+## Log de sessões
+
+### 2026-04-17 (d) — Camada 1 iniciada: `nomads` + `nomads_filter`
+- Sub-pacote `sharktopus.sources` criado com três módulos:
+  - `base.py` — exceção `SourceUnavailable`, `canonical_filename`,
+    validadores `validate_cycle`/`validate_date`, `check_retention` e
+    `stream_download` em stdlib puro (`urllib.request`) com retries,
+    atomic rename via `.part` e mapeamento 404→`SourceUnavailable`.
+  - `nomads.py` — download full-file de `nomads.ncep.noaa.gov`, com
+    crop local opcional (usa `grib.crop` quando `bbox=` é passado).
+    Aplica a janela de retenção (~10 dias) antes de tocar a rede.
+  - `nomads_filter.py` — subset server-side via `filter_gfs_0p25.pl`
+    (e `..._1hr.pl` com `hourly=True`). Aceita nomes de níveis estilo
+    wgrib2 (`"500 mb"`, `"2 m above ground"`) e converte para
+    `lev_*` via `level_to_param`.
+- Escolha de design: **sem variáveis/níveis hardcoded** (todo script
+  CONVECT carregava cópias privadas do conjunto WRF-input de 13 vars/
+  48 níveis). `nomads_filter.fetch_step` exige `variables=` e `levels=`
+  do caller — a biblioteca fica útil para workflows fora do WRF.
+- 25 testes novos (URL, retenção, retry, 404, conversão de nível,
+  fluxo download+crop com `urlopen` monkeypatched). Total: **41 passam,
+  2 skip** (wgrib2 fora do PATH no venv). Versão bumpada para 0.1.0.
+- Diferenças vs CONVECT documentadas em `docs/ORIGIN.md` seção Layer 1:
+  exceções tipadas, stdlib-only, sem I/O escondido em `parse_idx`,
+  parametrização explícita de variáveis/níveis.
+- Commit `618b21e` em `~/projetos/sharktopus/`.
+
+### 2026-04-17 (a) — Documento de acompanhamento criado
+- Contexto coletado de `STATUS.md`, `docs/cloud_setup_report.md`,
+  `orchestration/deploy/*.py`, `containers/fetcher/scripts/menu_gfs.py`.
+- Versão inicial do plano escrita.
+
+### 2026-04-17 (c) — Camada 0 implementada em `~/projetos/sharktopus/`
+- Pacote criado em `~/projetos/sharktopus/` com layout src, hatchling,
+  Python ≥ 3.10, `pip install -e .[test]` funcional.
+- Módulo `sharktopus.grib` com as 6 utilidades consolidadas:
+  `verify, crop, filter_vars_levels, parse_idx, byte_ranges, rename_by_validity`.
+  Mais `have_wgrib2()` como auxiliar e `GribError`/`IdxRecord` como tipos.
+- Diferenças intencionais vs CONVECT documentadas em `docs/ORIGIN.md`:
+  bbox é tupla `(lon_w, lon_e, lat_s, lat_n)`, falhas viram `GribError`
+  (não `-1`/`None`), `parse_idx` é função pura sem HTTP.
+- Testes: 14 passam (parse_idx, byte_ranges, validações de bbox/inputs,
+  erros quando wgrib2 ausente); 2 skip quando wgrib2 fora do PATH.
+- Git inicializado com commit inicial `dd93ac7`.
+- **Blocker B5 resolvido**: as 6 utilidades agora têm um único home; as 5
+  fontes da Camada 1 vão consumir daqui em vez de duplicar.
+
+### 2026-04-17 (b) — Estratégia revisada: construção em camadas, local primeiro
+- **Descoberta**: as 5 fontes de download não dependem do deploy serverless.
+  Cada uma lê direto do bucket/endpoint público e corta com wgrib2 local.
+  Isso permite uma primeira versão "zero-cloud" da biblioteca.
+- **Arquitetura em 6 camadas** definida (grib utils → sources locais →
+  orquestrador → cloud invoke → deploy → CLI). Camadas 0–2 não exigem
+  credenciais nem deploy.
+- **API alvo inspirada no Herbie** formalizada: top-level `st.fetch(...)`,
+  submódulos de fonte para uso fino, utilidades wgrib2 standalone.
+- **Caso canônico de validação** escolhido: 2024-01-21 00Z, fxx=6,
+  bbox=(-45,-40,-25,-20) — mesmo caso do pipeline de radar DA, já temos
+  GRIB2 de referência no disco.
+- **Levantamento de código duplicado**: identificadas 6 utilidades wgrib2/idx
+  repetidas em 3–4 scripts (B5) — unificação vira primeiro PR da biblioteca.
+- **Próxima sessão**: Camada 0 (`src/sharktopus/grib.py` + `pyproject.toml` mínimo
+  + `tests/test_grib.py`). Critério: `pytest` passa no caso canônico.

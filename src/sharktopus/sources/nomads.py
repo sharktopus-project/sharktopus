@@ -24,11 +24,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import grib, paths
+from ._common import download_and_crop
 from .base import (
-    SourceUnavailable,
     canonical_filename,
     check_retention,
-    stream_download,
     validate_cycle,
     validate_date,
 )
@@ -36,7 +35,11 @@ from .base import (
 BASE_URL = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod"
 RETENTION_DAYS = 10
 
-__all__ = ["BASE_URL", "build_url", "fetch_step"]
+# NOAA's origin infrastructure rate-limits aggressive callers aggressively —
+# we have observed 503s at 4+ concurrent connections from a single IP.
+DEFAULT_MAX_WORKERS = 2
+
+__all__ = ["BASE_URL", "DEFAULT_MAX_WORKERS", "build_url", "fetch_step"]
 
 
 def build_url(date: str, cycle: str, fxx: int, product: str = "pgrb2.0p25") -> str:
@@ -132,30 +135,9 @@ def fetch_step(
         dest_dir.mkdir(parents=True, exist_ok=True)
     final = dest_dir / canonical_filename(cycle, fxx, product=product)
 
-    stream_download(
+    return download_and_crop(
         url, final,
+        bbox=bbox, pad_lon=pad_lon, pad_lat=pad_lat,
         timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
+        verify=verify, wgrib2=wgrib2,
     )
-
-    if bbox is not None:
-        crop_bbox = grib.expand_bbox(bbox, pad_lon=pad_lon, pad_lat=pad_lat)
-        tmp = final.with_suffix(final.suffix + ".full")
-        final.rename(tmp)
-        try:
-            grib.crop(tmp, final, bbox=crop_bbox, wgrib2=wgrib2)
-        finally:
-            try:
-                tmp.unlink()
-            except FileNotFoundError:
-                pass
-
-    if verify and grib.have_wgrib2(wgrib2):
-        n = grib.verify(final, wgrib2=wgrib2)
-        if n <= 0:
-            try:
-                final.unlink()
-            except FileNotFoundError:
-                pass
-            raise SourceUnavailable(f"downloaded file has no records: {url}")
-
-    return final

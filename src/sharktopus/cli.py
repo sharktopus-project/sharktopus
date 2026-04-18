@@ -96,6 +96,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--pad-lat", type=float, dest="pad_lat",
         help="Bbox buffer in degrees (lat). Default 2°.",
     )
+    parser.add_argument(
+        "--max-workers", type=int, dest="max_workers",
+        help=(
+            "Parallel step downloads. Defaults to the most-throttled "
+            "source's published ceiling (min across --priority)."
+        ),
+    )
 
     return parser
 
@@ -147,7 +154,10 @@ def _build_kwargs(merged: dict[str, Any]) -> dict[str, Any]:
         "interval": int(merged.get("interval", 3)),
         "priority": tuple(merged.get("priority") or ("nomads_filter", "nomads")),
     }
-    for k in ("variables", "levels", "dest", "root", "product", "pad_lon", "pad_lat"):
+    for k in (
+        "variables", "levels", "dest", "root", "product",
+        "pad_lon", "pad_lat", "max_workers",
+    ):
         if k in merged and merged[k] is not None:
             kwargs[k] = merged[k]
     return kwargs

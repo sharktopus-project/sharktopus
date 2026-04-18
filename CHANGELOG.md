@@ -5,6 +5,34 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **Layer 1 complete** — four new full-file mirrors join the existing
+  `nomads` / `nomads_filter` pair:
+  - `sharktopus.sources.aws` — AWS Open Data bucket
+    `noaa-gfs-bdp-pds` (anonymous HTTPS, ~2 year retention).
+  - `sharktopus.sources.gcloud` — Google Cloud bucket
+    `global-forecast-system` (anonymous HTTPS, long retention).
+  - `sharktopus.sources.azure` — Azure Blob `noaagfs/gfs`
+    (anonymous HTTPS, indefinite retention).
+  - `sharktopus.sources.rda` — NCAR RDA dataset `ds084.1`
+    (since 2015-01-15, validity-time filenames, optional
+    `$SHARKTOPUS_RDA_COOKIE` for authenticated requests).
+  All four share the same full-GRIB-download + local-crop recipe via
+  the new `sharktopus.sources._common.download_and_crop` helper; each
+  exposes `BASE_URL`, `build_url`, `DEFAULT_MAX_WORKERS`, and
+  `fetch_step`.
+- **Anti-throttle worker defaults.** Each source publishes a
+  `DEFAULT_MAX_WORKERS` tuned below its observed throttle threshold
+  (NOMADS/filter: 2, AWS/GCloud/Azure: 4, RDA: 1). `fetch_batch` runs
+  steps in parallel via `ThreadPoolExecutor`, sizing the pool to
+  `min(DEFAULT_MAX_WORKERS)` across the priority list so the
+  slowest-throttled mirror paces the batch. `max_workers=N` lets
+  callers override.
+- `batch.register_source(name, fn, *, max_workers=1)` now records the
+  per-source worker ceiling alongside the fetcher. New public helpers:
+  `batch.source_default_workers(name)`,
+  `batch.default_max_workers(priority)`.
+- `cli.py` learns `--max-workers`; `config.py` accepts `max_workers` in
+  the `[gfs]` section.
 - **Layer 2 start** — `sharktopus.batch.fetch_batch(...)` orchestrator
   iterates over cycles × forecast steps and falls back across a
   `priority=[...]` list of sources on
@@ -59,6 +87,9 @@ All notable changes to this project will be documented here.
   and manual dispatch. Does not publish to PyPI yet.
 
 ### Changed
+- `sources.nomads.fetch_step` refactored to call the shared
+  `_common.download_and_crop` helper (no behavioural change — the
+  verify / crop / cleanup sequence is identical, just deduplicated).
 - `sources.nomads.fetch_step` now expands *bbox* by `pad_lon` / `pad_lat`
   (both default 2°) before calling `grib.crop`. Previously cropped the
   exact user bbox, which is unsafe for WRF because metgrid needs a

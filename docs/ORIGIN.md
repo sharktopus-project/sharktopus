@@ -45,6 +45,51 @@ general GRIB2 fact. Layer 0's `filter_vars_levels` takes them as parameters.
 | `build_url(...)` | `query_static + query_levels + query_spatial` block in `download_nomades_gfs_0p25.py:325-362` |
 | `fetch_step(...)` | `download_recorte` orchestration, but dropping the hardcoded variable/level set (caller's responsibility) |
 
+### `sharktopus.sources.aws`
+
+| sharktopus symbol | CONVECT source |
+|---|---|
+| `BASE_URL` | `f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/..."` in `download_aws_gfs_0p25_full4.py::download_global` (line 279) |
+| `build_url(date, cycle, fxx)` | URL composition in the same function |
+| `fetch_step(...)` | Simplified from `download_global` + `download_file_with_progress` — dropping the `s5cmd`/`aws s3 cp` path (we use plain HTTPS so there are no AWS-CLI deps) and the hardcoded variable/level filter (caller passes `bbox` for geographic crop only). |
+| `DEFAULT_MAX_WORKERS = 4` | Matches the outer-loop `max_workers=2` in `download_aws_gfs_0p25_full4.py:277`, relaxed to 4 after verifying S3 absorbs it without 429s |
+
+### `sharktopus.sources.gcloud`
+
+| sharktopus symbol | CONVECT source |
+|---|---|
+| `BASE_URL` / `BUCKET` | `GFS_BUCKET = "global-forecast-system"` in `download_gcloud_gfs_0p25.py:43` |
+| `build_url(date, cycle, fxx)` | URL composition inline in `download_gcloud_gfs_0p25.py::read_idx` (line 82) |
+| `fetch_step(...)` | Simplified from the byte-range download + crop flow — we download the full file instead of assembling HTTP ranges, so the whole `.idx`-driven byte-range block is not needed here. |
+| `DEFAULT_MAX_WORKERS = 4` | Matches `max_workers=2` in `download_gcloud_gfs_0p25.py:307`; GCS absorbs 4 easily |
+
+### `sharktopus.sources.azure`
+
+| sharktopus symbol | CONVECT source |
+|---|---|
+| `BASE_URL` / `CONTAINER` | `AZURE_BASE_URL = "https://noaagfs.blob.core.windows.net/gfs"` in `download_azure_gfs_0p25.py:37` |
+| `build_url(date, cycle, fxx)` | URL composition inline in `download_azure_gfs_0p25.py::read_idx` (line 66) |
+| `fetch_step(...)` | Simplified from the byte-range download + crop flow (same reasoning as `gcloud`) |
+| `DEFAULT_MAX_WORKERS = 4` | Matches `max_workers=2` in `download_azure_gfs_0p25.py:205` |
+
+### `sharktopus.sources.rda`
+
+| sharktopus symbol | CONVECT source |
+|---|---|
+| `BASE_URL` / `DATASET` | `"https://data.rda.ucar.edu/d084001"` in `download_rda_gfs.py::_download_025` (line 149) |
+| `EARLIEST` | `THRESHOLD_025 = datetime(2015, 1, 15, 0)` at `download_rda_gfs.py:55` |
+| `rda_filename(date, cycle, fxx)` | `nome = f"gfs.0p25.{date_str}{hora}.f{step:03d}.grib2"` at line 148 |
+| `build_url(date, cycle, fxx)` | URL composition at line 149 |
+| `fetch_step(...)` | Simplified from `_download_025` + `_download_file` + `_crop_region`; drops the FNL 1° fallback (that's a different dataset — consumers who want it can implement `sharktopus.sources.rda_fnl`). |
+| `DEFAULT_MAX_WORKERS = 1` | The CONVECT script never parallelised RDA — academic infra throttles aggressive anonymous callers |
+| `$SHARKTOPUS_RDA_COOKIE` | New — CONVECT relied on system-level `wget` cookies; we pass the header explicitly for reproducibility |
+
+### `sharktopus.sources._common`
+
+| sharktopus symbol | CONVECT origin |
+|---|---|
+| `download_and_crop(url, final, ...)` | New helper — consolidates the full-file + local-crop + verify pattern that repeats verbatim in `download_nomades_gfs_0p25.py`, `download_aws_gfs_0p25_full4.py::download_global`, `download_gcloud_gfs_0p25.py::download_step`, `download_azure_gfs_0p25.py::download_step`, and `download_rda_gfs.py::_download_025`. |
+
 ### `sharktopus.sources.base`
 
 | sharktopus symbol | CONVECT origin |
@@ -101,3 +146,19 @@ binary inside the platform wheel via a Hatchling build hook
 - **Stdlib-only networking.** CONVECT uses `wget` (in `nomades`) and
   `requests` (in `nomads_filter`). The library uses `urllib.request` so
   the base install has zero runtime dependencies.
+- **Full download, not byte-range.** CONVECT's `aws` / `gcloud` /
+  `azure` scripts fetch individual variable/level records via HTTP
+  range requests driven by the `.idx`. `sharktopus` instead downloads
+  the full ~500 MB file and crops locally with `wgrib2 -small_grib`.
+  The full-file approach is simpler, uses one HTTP connection per
+  step (friendlier to mirrors), and lets the same `bbox` → crop flow
+  apply regardless of source. Byte-range fetching remains possible in
+  `sharktopus.grib.byte_ranges` / `parse_idx` for users who need it
+  (e.g. fetching two variables from 40 years of archive), but is not
+  the default source-layer path.
+- **Step-level parallelism, per-source defaults.** CONVECT hard-codes
+  `max_workers=2` in every source. `sharktopus` publishes a
+  `DEFAULT_MAX_WORKERS` per source that reflects each mirror's
+  observed throttle threshold (NOMADS 2, cloud 4, RDA 1), and
+  `fetch_batch` caps pool size to `min(...)` across the priority
+  list so a mixed priority is paced by its weakest mirror.

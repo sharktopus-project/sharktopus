@@ -333,33 +333,21 @@ sharktopus/
 
 ## Próximo passo imediato
 
-**Camada 1 em progresso: 2/6 fontes prontas (sessão 2026-04-17 (d)).**
-Próxima fonte a portar: **`sharktopus.sources.aws_s3`** (byte-range via `.idx`
-no bucket público `noaa-gfs-bdp-pds`).
+**Camada 1 completa (sessão 2026-04-18).** Seis fontes registradas:
+`nomads`, `nomads_filter`, `aws`, `gcloud`, `azure`, `rda`. Todas as
+cinco full-file compartilham o recipe `_common.download_and_crop`.
 
-Passos da próxima sessão:
+Próxima frente de trabalho — escolher entre:
 
-1. Criar `src/sharktopus/sources/aws_s3.py` portando
-   `containers/fetcher/scripts/download_aws_gfs_0p25_full4.py`. Reaproveitar
-   `grib.parse_idx` e `grib.byte_ranges` da Camada 0 — a fonte só precisa
-   (a) fetch do `.idx`, (b) compor Range requests, (c) baixar com `boto3`
-   ou HTTPS puro. Tentar **manter stdlib-only** (boto3 vira extra `[aws]`
-   opcional) — o bucket é público, dá pra usar `urllib.request` com
-   header `Range:` direto.
-2. Tests: URL do bucket + `.idx`, Range requests consolidados,
-   404→`SourceUnavailable`, fallback "sem `.idx` → baixa inteiro + crop local".
-3. Atualizar `docs/ORIGIN.md` com a linha da nova fonte e `CHANGELOG.md`.
-
-**Critério de pronto**: `pytest -q` passa, e
-```python
-from sharktopus.sources import aws_s3
-p = aws_s3.fetch_step("20240121", "00", 6, dest="/tmp",
-                       bbox=(-45,-40,-25,-20),
-                       variables=["TMP","UGRD"], levels=["500 mb"])
-```
-funciona no caso canônico.
-
-Depois segue: `gcloud_storage → azure_blob → rda`.
+1. **Shipping preview.** Tag `v0.1.0`, CI roda, wheel sai como artifact
+   no GitHub Actions, consumidores conseguem `pip install` via
+   `git+https://...`. Caminho mais curto pra feedback real.
+2. **Camada 3 (cloud invoke).** Implementar os wrappers para invocar
+   Lambda / Cloud Run / Azure Function já deployadas pelo CONVECT, e
+   registrar como fontes `lambda` / `gcloud_run` / `azure_func`.
+3. **Observabilidade.** Adicionar logging estruturado em `fetch_batch`
+   (tempo por step, bytes transferidos, cache-hit vs download, qual
+   fonte venceu) — útil antes do preview público.
 
 ---
 
@@ -376,6 +364,42 @@ Depois segue: `gcloud_storage → azure_blob → rda`.
 ---
 
 ## Log de sessões
+
+### 2026-04-18 — Camada 1 completa: AWS + GCloud + Azure + RDA
+- Quatro fontes novas portadas seguindo o mesmo contrato de `nomads.py`:
+  - `sharktopus.sources.aws` — `noaa-gfs-bdp-pds.s3.amazonaws.com`
+  - `sharktopus.sources.gcloud` — `storage.googleapis.com/global-forecast-system`
+  - `sharktopus.sources.azure` — `noaagfs.blob.core.windows.net/gfs`
+  - `sharktopus.sources.rda` — `data.rda.ucar.edu/d084001` (ds084.1)
+- **Estratégia**: todas usam **download do GRIB completo + recorte local
+  com wgrib2** (não byte-range). Mais simples, uma conexão HTTP por step,
+  mesmo fluxo `bbox → crop` em todas as fontes. Byte-range continua
+  possível via `grib.byte_ranges` / `parse_idx` para quem precisa.
+- **Helper novo**: `sources._common.download_and_crop(url, final, ...)`
+  consolida stream_download + crop opcional + verify. `nomads.py`
+  refatorado pra usá-lo também — zero mudança de comportamento, só
+  deduplicação.
+- **Anti-throttle workers**: cada módulo publica `DEFAULT_MAX_WORKERS`
+  calibrado abaixo do limiar de throttling observado (NOMADS/filter 2,
+  cloud 4, RDA 1). `fetch_batch` paraleliza steps via
+  `ThreadPoolExecutor` dimensionado a `min()` desses defaults ao longo
+  da priority list. CLI ganhou `--max-workers`; config INI aceita
+  `max_workers`.
+- **Registry**: `register_source(name, fn, *, max_workers=1)` — default
+  conservador (serial) para fontes custom não caracterizadas.
+- **RDA específico**: filenames no formato validity-time
+  (`gfs.0p25.{YYYYMMDDHH}.f{FFF}.grib2`), mas o arquivo final é salvo
+  com o nome canônico NOMADS/AWS (`gfs.t{HH}z.pgrb2.0p25.f{FFF}`)
+  para o resto do pipeline não precisar saber qual fonte ganhou.
+  `$SHARKTOPUS_RDA_COOKIE` serve requests autenticados.
+  Guard `EARLIEST = 2015-01-15` levanta `SourceUnavailable` cedo.
+- **Tests**: 34 novos (`test_sources_mirrors.py` com parametrize sobre
+  as 4 fontes, `test_batch_parallel.py` com threading real). Suite
+  total: **143 passam, 1 skip**.
+- `docs/ORIGIN.md` atualizado com tabelas por fonte + diferenças
+  intencionais (full download vs byte-range, worker defaults).
+  `CHANGELOG.md` com entrada Unreleased. `README.md` com tabela
+  comparativa das 6 fontes + tabela de workers.
 
 ### 2026-04-17 (e) — Empacotamento wgrib2 + CI de wheel
 - **Resolver** (`sharktopus._wgrib2`): ordem explicit → `$SHARKTOPUS_WGRIB2` →

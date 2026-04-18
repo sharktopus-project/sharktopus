@@ -18,8 +18,9 @@ CONVECT radar-DA pipeline) before the next layer starts.
 ├──────────────────────────────────────────────────────────────┤
 │ 1. Local sources             (sharktopus.sources.*)          │
 ├──────────────────────────────────────────────────────────────┤
-│ 0. wgrib2 + .idx utilities   (sharktopus.grib)    ← we are here
+│ 0. wgrib2 + .idx utilities   (sharktopus.grib)
 └──────────────────────────────────────────────────────────────┘
+              ← Layers 0–2 + 5 all done; Layer 3/4 next
 ```
 
 ## Layer 0 — `sharktopus.grib` — DONE (v0.0.1)
@@ -27,28 +28,33 @@ CONVECT radar-DA pipeline) before the next layer starts.
 Six pure utilities consolidated from CONVECT's five download scripts. See
 `docs/ORIGIN.md`.
 
-## Layer 1 — `sharktopus.sources.*` — IN PROGRESS (v0.1.0)
+## Layer 1 — `sharktopus.sources.*` — DONE (v0.1.0 + unreleased)
 
 Source modules, each exposing:
 
 ```python
-def fetch_step(date, cycle, fxx, *, dest, bbox=None, ...) -> Path: ...
+def fetch_step(date, cycle, fxx, *, dest=None, bbox=None, ...) -> Path: ...
 ```
 
-Port order (2/6 done):
+All six sources implemented and tested:
 
 1. ✅ `nomads` — full-file download from `nomads.ncep.noaa.gov`
 2. ✅ `nomads_filter` — server-side subset via `filter_gfs_0p25.pl`
-3. ⬜ `aws_s3` — byte-range from `noaa-gfs-bdp-pds` (boto3)
-4. ⬜ `gcloud_storage` — byte-range from `global-forecast-system` (HTTPS public)
-5. ⬜ `azure_blob` — byte-range from `noaagfs.blob.core.windows.net` (HTTPS public)
-6. ⬜ `rda` — NCAR RDA authenticated download (0.25° and 1°)
+3. ✅ `aws` — full-file from `noaa-gfs-bdp-pds` (anonymous HTTPS)
+4. ✅ `gcloud` — full-file from `global-forecast-system` (anonymous HTTPS)
+5. ✅ `azure` — full-file from `noaagfs.blob.core.windows.net` (anonymous HTTPS)
+6. ✅ `rda` — full-file from NCAR `ds084.1` (optional cookie auth)
 
-## Layer 2 — `sharktopus.fetch`
+Strategy: full-GRIB download + local `wgrib2 -small_grib` crop. Byte-range
+support remains available through `grib.byte_ranges` / `parse_idx` for
+callers who need it.
 
-Top-level orchestrator. Accepts `priority=[...]`, iterates `fxx`, falls back
-between sources on `SourceUnavailable`, parallelizes with
-`ThreadPoolExecutor`.
+## Layer 2 — `sharktopus.batch` — DONE (unreleased)
+
+Top-level orchestrator `fetch_batch(timestamps, lat_s/n/w/e, priority=[...], ...)`.
+Iterates cycles × fxx, falls back across sources on `SourceUnavailable`,
+parallelizes with `ThreadPoolExecutor` sized to the minimum
+`DEFAULT_MAX_WORKERS` across the priority list (anti-throttle).
 
 ## Layer 3 — `sharktopus.cloud` (extra `[cloud]`)
 
@@ -60,6 +66,8 @@ URLs from `~/.sharktopus/config.json` (written by `deploy.setup`).
 Ported from CONVECT's `orchestration/deploy/{aws,gcloud,azure,common}.py`.
 `setup("aws"|"gcloud"|"azure")` creates all resources and saves config.
 
-## Layer 5 — `sharktopus.cli`
+## Layer 5 — `sharktopus.cli` — DONE (unreleased)
 
-Port of CONVECT's `menu_gfs.py` as an entry point `sharktopus`.
+`sharktopus` entry point mirrors CONVECT's `download_batch_cli.py` flag
+names, reads INI config via `sharktopus.config`, and runs everything
+through `fetch_batch`.

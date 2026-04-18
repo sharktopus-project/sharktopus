@@ -4,9 +4,10 @@ Download and crop GFS forecast data. Local sources first (NOMADS, AWS Open Data,
 Google Cloud, Azure Blob); serverless cloud recortador is an optional second
 layer for free-tier distributed cropping.
 
-> **Status (2026-04-17): pre-alpha, layers 0–1 partial.** `grib` utilities
-> are complete; `sources.nomads` and `sources.nomads_filter` are ported
-> from CONVECT and tested. Other mirrors (AWS/GCloud/Azure/RDA) are next.
+> **Status (2026-04-18): pre-alpha, Layer 1 complete.** All six sources
+> are ported from CONVECT and tested: `nomads`, `nomads_filter`, `aws`,
+> `gcloud`, `azure`, `rda`. All full-file sources share the same
+> download + local-crop recipe; `nomads_filter` does server-side subset.
 > See `docs/ROADMAP.md` for the layered build plan.
 
 ## Install
@@ -64,8 +65,17 @@ sharktopus.fetch_batch(
     timestamps=["2024010200", "2024010206"],
     lat_s=-28, lat_n=-18, lon_w=-48, lon_e=-36,
     ext=24, interval=3,
+    # Try AWS first (fast + cheap), then GCloud, then NOMADS live
+    priority=["aws", "gcloud", "nomads"],
+)
+
+# Mix origin + mirrors — `fetch_batch` falls through on SourceUnavailable
+sharktopus.fetch_batch(
+    timestamps=["2024010200"],
+    lat_s=-28, lat_n=-18, lon_w=-48, lon_e=-36,
+    ext=24, interval=3,
     priority=["nomads_filter", "nomads"],
-    variables=["TMP", "UGRD", "VGRD", "HGT"],     # nomads_filter
+    variables=["TMP", "UGRD", "VGRD", "HGT"],     # nomads_filter only
     levels=["500 mb", "850 mb", "surface"],
 )
 ```
@@ -110,6 +120,43 @@ Precedence is **CLI flag > config file > built-in defaults**, matching
 Python stdlib conventions. Keys in the `[gfs]` section match the
 CLI flag names (dashes → underscores) and raise a clear `ConfigError`
 on typos.
+
+### Sources (Layer 1)
+
+Six sources, all registered at import time:
+
+| Name            | Endpoint                                            | Retention     | Strategy                  |
+|-----------------|-----------------------------------------------------|---------------|---------------------------|
+| `nomads`        | `nomads.ncep.noaa.gov` (origin)                     | ~10 days      | Full download + local crop |
+| `nomads_filter` | `nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl`   | ~10 days      | Server-side subset         |
+| `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | ~2 years      | Full download + local crop |
+| `gcloud`        | `storage.googleapis.com/global-forecast-system`     | long          | Full download + local crop |
+| `azure`         | `noaagfs.blob.core.windows.net/gfs`                 | long          | Full download + local crop |
+| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | since 2015-01 | Full download + local crop |
+
+All are anonymous — no accounts, no API keys, no SDK installs. RDA
+accepts an optional `SHARKTOPUS_RDA_COOKIE` env var for the rare files
+behind login.
+
+**Anti-throttle defaults.** Each source publishes a conservative
+`DEFAULT_MAX_WORKERS` tuned below its observed throttle threshold.
+`fetch_batch` caps step-level parallelism at the *minimum* across the
+priority list, so the slowest-throttled mirror paces the pool:
+
+| Source            | Default max workers |
+|-------------------|---------------------|
+| `nomads`          | 2                   |
+| `nomads_filter`   | 2                   |
+| `aws`             | 4                   |
+| `gcloud`          | 4                   |
+| `azure`           | 4                   |
+| `rda`             | 1 (serial)          |
+
+Override per batch when you know better:
+
+```python
+sharktopus.fetch_batch(..., max_workers=8)   # explicit
+```
 
 ### Layer 1 — NOMADS sources
 
@@ -188,14 +235,14 @@ See `docs/ORIGIN.md` for a per-function mapping CONVECT → sharktopus.
 The package is built bottom-up in 6 layers. Each layer is validated before the
 next starts.
 
-| Layer | Module | Depends on network? | Depends on cloud deploy? |
-|---|---|---|---|
-| 0. grib utilities | `sharktopus.grib` | no | no |
-| 1. sources (NOMADS, AWS, GCloud, Azure, RDA) | `sharktopus.sources.*` | yes | no |
-| 2. orchestrator `fetch()` | `sharktopus.fetch` | yes | no |
-| 3. cloud invoke (extras) | `sharktopus.cloud` | yes | yes |
-| 4. cloud deploy (extras) | `sharktopus.deploy` | yes | yes |
-| 5. CLI + interactive menu | `sharktopus.cli` | — | — |
+| Layer | Module | Status | Depends on network? | Depends on cloud deploy? |
+|---|---|---|---|---|
+| 0. grib utilities | `sharktopus.grib` | ✅ done | no | no |
+| 1. sources (NOMADS/AWS/GCloud/Azure/RDA) | `sharktopus.sources.*` | ✅ done | yes | no |
+| 2. orchestrator `fetch_batch()` | `sharktopus.batch` | ✅ done | yes | no |
+| 3. cloud invoke (extras) | `sharktopus.cloud` | pending | yes | yes |
+| 4. cloud deploy (extras) | `sharktopus.deploy` | pending | yes | yes |
+| 5. CLI + interactive menu | `sharktopus.cli` | ✅ done | — | — |
 
 See `docs/ROADMAP.md` for details and validation criteria per layer.
 

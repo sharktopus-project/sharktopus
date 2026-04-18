@@ -1,0 +1,135 @@
+"""NCAR RDA mirror — full-file download + local crop.
+
+NCAR's Research Data Archive hosts a long-term GFS 0.25° archive at
+dataset ``ds084.1`` (available since 2015-01-15). Files use a
+validity-time naming scheme (``gfs.0p25.{YYYYMMDDHH}.f{FFF}.grib2``),
+different from NOMADS/AWS/GCS/Azure which all mirror NOAA's cycle-time
+layout.
+
+Public HTTPS works for recent files — ``https://data.rda.ucar.edu/``
+serves anonymously. Older files sometimes require a free NCAR RDA
+account; set ``SHARKTOPUS_RDA_COOKIE`` (the value of the
+``rda-cookie`` header after logging in to
+https://rda.ucar.edu/login/) and we'll pass it on requests.
+
+Example
+-------
+
+>>> from sharktopus.sources import rda
+>>> path = rda.fetch_step(
+...     "20240121", "00", 6,
+...     bbox=(-45, -40, -25, -20),
+... )
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .. import grib, paths
+from ._common import download_and_crop
+from .base import SourceUnavailable, canonical_filename, validate_cycle, validate_date
+
+DATASET = "d084001"
+BASE_URL = f"https://data.rda.ucar.edu/{DATASET}"
+
+# Earliest date for which ds084.1 has 0.25° data. Requests older than
+# this raise SourceUnavailable up front so the orchestrator can fall
+# through to a different source (or nothing — RDA is our oldest mirror).
+EARLIEST = datetime(2015, 1, 15, tzinfo=timezone.utc)
+
+# Be nice to academic infrastructure. NCAR has throttled aggressive
+# anonymous callers in the past; the CONVECT RDA script ran serial
+# (effectively max_workers=1) and never saw a 429. We keep that here.
+DEFAULT_MAX_WORKERS = 1
+
+# Canonical RDA filename (validity-time layout). Independent of the
+# NOMADS/AWS/GCS/Azure cycle-time canonical_filename.
+def rda_filename(date: str, cycle: str, fxx: int) -> str:
+    """Return ``gfs.0p25.{YYYYMMDDHH}.f{FFF}.grib2`` for RDA."""
+    validate_cycle(cycle)
+    if fxx < 0:
+        raise ValueError(f"fxx must be >= 0, got {fxx}")
+    return f"gfs.0p25.{date}{cycle}.f{fxx:03d}.grib2"
+
+
+__all__ = [
+    "BASE_URL",
+    "DATASET",
+    "DEFAULT_MAX_WORKERS",
+    "EARLIEST",
+    "build_url",
+    "fetch_step",
+    "rda_filename",
+]
+
+
+def build_url(date: str, cycle: str, fxx: int) -> str:
+    """Return the public HTTPS URL of one GFS forecast file on RDA ds084.1."""
+    dt = validate_date(date)
+    validate_cycle(cycle)
+    year = dt.strftime("%Y")
+    fname = rda_filename(date, cycle, fxx)
+    return f"{BASE_URL}/{year}/{date}/{fname}"
+
+
+def _auth_headers() -> dict[str, str] | None:
+    cookie = os.environ.get("SHARKTOPUS_RDA_COOKIE")
+    if cookie:
+        return {"Cookie": cookie}
+    return None
+
+
+def fetch_step(
+    date: str,
+    cycle: str,
+    fxx: int,
+    *,
+    dest: str | Path | None = None,
+    root: str | Path | None = None,
+    bbox: grib.Bbox | None = None,
+    pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
+    pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
+    product: str = "pgrb2.0p25",  # accepted for signature parity; ignored
+    timeout: float = 60.0,
+    max_retries: int = 3,
+    retry_wait: float = 10.0,
+    verify: bool = True,
+    wgrib2: str = "wgrib2",
+) -> Path:
+    """Download one GFS forecast step from NCAR RDA ds084.1.
+
+    Parameters mirror :func:`sharktopus.sources.nomads.fetch_step`.
+
+    ``product`` is accepted for signature parity with the other
+    sources but ignored — RDA serves only one GRIB2 flavour under
+    ds084.1. The file is written under the canonical NOMADS/AWS name
+    (``gfs.t{HH}z.pgrb2.0p25.f{FFF}``), not the RDA validity-time
+    name, so downstream tools can find it the same way regardless of
+    which source supplied it.
+    """
+    del product  # silence linters; kept for API compatibility
+    dt = validate_date(date)
+    if dt < EARLIEST:
+        raise SourceUnavailable(
+            f"RDA ds084.1 starts {EARLIEST.date()}; requested {date}"
+        )
+    url = build_url(date, cycle, fxx)
+    if dest is None:
+        dest_dir = paths.output_dir(
+            date=date, cycle=cycle, bbox=bbox, mode="fcst", root=root,
+        )
+    else:
+        dest_dir = Path(dest)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    final = dest_dir / canonical_filename(cycle, fxx)
+
+    return download_and_crop(
+        url, final,
+        bbox=bbox, pad_lon=pad_lon, pad_lat=pad_lat,
+        timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
+        verify=verify, wgrib2=wgrib2,
+        headers=_auth_headers(),
+    )

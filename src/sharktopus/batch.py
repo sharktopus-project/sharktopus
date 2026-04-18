@@ -1,4 +1,4 @@
-"""Batch-download orchestrator — Layer 2 start.
+"""Batch-download orchestrator — Layer 2.
 
 Drop-in replacement for CONVECT's ``menu_gfs.download_batch``:
 iterates over a list of cycle timestamps, within each cycle iterates
@@ -8,32 +8,42 @@ in ``priority`` order until one succeeds. Signature mirrors
 rather than a tuple) so callers migrating from CONVECT don't have to
 rewrite their call sites.
 
-Source registry is a plain dict keyed by name. Sources currently
-registered:
+Source registry is a plain dict keyed by name. Built-in registrations:
 
-* ``nomads`` → :mod:`sharktopus.sources.nomads`
-* ``nomads_filter`` → :mod:`sharktopus.sources.nomads_filter`
+* ``nomads`` — :mod:`sharktopus.sources.nomads` (full-file, NOAA)
+* ``aws`` — :mod:`sharktopus.sources.aws` (AWS Open Data mirror)
+* ``gcloud`` — :mod:`sharktopus.sources.gcloud` (Google Cloud mirror)
+* ``azure`` — :mod:`sharktopus.sources.azure` (Azure Blob mirror)
+* ``rda`` — :mod:`sharktopus.sources.rda` (NCAR long-term archive)
+* ``nomads_filter`` — :mod:`sharktopus.sources.nomads_filter`
+  (server-side subset)
 
-The other CONVECT source names (``aws``, ``gcloud``, ``azure``,
-``lambda``, ``azure_func``, ``gcloud_run``, ``ncep_ftp``, ``rda``)
-register themselves as they're ported.
+Concurrency — each source publishes a ``DEFAULT_MAX_WORKERS`` tuned
+below its mirror's observed throttling threshold. :func:`fetch_batch`
+runs steps in parallel with a ``ThreadPoolExecutor`` sized to the
+*minimum* across the priority list (so the slowest-throttled mirror
+paces the whole pool, not the fastest one). Callers who know better
+can override via ``max_workers=...``.
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from . import grib
-from .sources import SourceUnavailable, nomads, nomads_filter
+from .sources import SourceUnavailable, aws, azure, gcloud, nomads, nomads_filter, rda
 
 __all__ = [
     "SourceRegistry",
+    "default_max_workers",
     "fetch_batch",
     "generate_timestamps",
     "register_source",
     "registered_sources",
+    "source_default_workers",
 ]
 
 
@@ -51,16 +61,58 @@ class SourceRegistry(dict[str, _SourceFn]):
 _REGISTRY = SourceRegistry(
     nomads=nomads.fetch_step,
     nomads_filter=nomads_filter.fetch_step,
+    aws=aws.fetch_step,
+    gcloud=gcloud.fetch_step,
+    azure=azure.fetch_step,
+    rda=rda.fetch_step,
 )
 
 
-def register_source(name: str, fetch_step: _SourceFn) -> None:
-    """Register a source so :func:`fetch_batch` can route priority to it."""
+# Per-source concurrency ceiling. nomads and nomads_filter are capped
+# lower because NOAA's origin infrastructure is the only one with
+# observed throttling at low QPS. The cloud mirrors (aws/gcloud/azure)
+# absorb much more.
+_WORKER_DEFAULTS: dict[str, int] = {
+    "nomads": 2,
+    "nomads_filter": 2,
+    "aws": aws.DEFAULT_MAX_WORKERS,
+    "gcloud": gcloud.DEFAULT_MAX_WORKERS,
+    "azure": azure.DEFAULT_MAX_WORKERS,
+    "rda": rda.DEFAULT_MAX_WORKERS,
+}
+
+
+def register_source(name: str, fetch_step: _SourceFn, *, max_workers: int = 1) -> None:
+    """Register a source so :func:`fetch_batch` can route priority to it.
+
+    *max_workers* becomes this source's published throttle ceiling (used
+    by :func:`default_max_workers`). Default is 1 (serial) — you must
+    opt in to parallelism explicitly once you've verified your mirror
+    won't 429 / 503 under load.
+    """
     _REGISTRY[name] = fetch_step
+    _WORKER_DEFAULTS[name] = int(max_workers)
 
 
 def registered_sources() -> list[str]:
     return sorted(_REGISTRY)
+
+
+def source_default_workers(name: str) -> int:
+    """Return the published throttle ceiling for *name* (falls back to 1)."""
+    return _WORKER_DEFAULTS.get(name, 1)
+
+
+def default_max_workers(priority: Sequence[str]) -> int:
+    """Conservative pool size for a priority list.
+
+    Returns the *minimum* ``DEFAULT_MAX_WORKERS`` across all sources in
+    the list — any step may fall back to any of them, so we must size
+    the pool for the most-throttled mirror. Never returns less than 1.
+    """
+    if not priority:
+        return 1
+    return max(1, min(source_default_workers(n) for n in priority))
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +150,29 @@ def generate_timestamps(start: str, end: str, step: int = 6) -> list[str]:
 # Batch orchestrator
 # ---------------------------------------------------------------------------
 
+def _one_step(
+    date: str, cycle: str, fxx: int,
+    priority: Sequence[str],
+    common: dict[str, Any],
+    variables: list[str] | None,
+    levels: list[str] | None,
+) -> tuple[Path | None, list[tuple[str, Exception]]]:
+    """Try the priority list for one (date, cycle, fxx); return (path_or_None, errors)."""
+    errors: list[tuple[str, Exception]] = []
+    for name in priority:
+        fetch = _REGISTRY[name]
+        kwargs = dict(common)
+        if name == "nomads_filter":
+            kwargs["variables"] = list(variables or [])
+            kwargs["levels"] = list(levels or [])
+        try:
+            return fetch(date, cycle, fxx, **kwargs), errors
+        except SourceUnavailable as e:
+            errors.append((name, e))
+            continue
+    return None, errors
+
+
 def fetch_batch(
     *,
     timestamps: Sequence[str],
@@ -115,6 +190,7 @@ def fetch_batch(
     product: str = "pgrb2.0p25",
     pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
     pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
+    max_workers: int | None = None,
     on_step_ok: Callable[[str, str, int, Path], None] | None = None,
     on_step_fail: Callable[[str, str, int, list[tuple[str, Exception]]], None] | None = None,
 ) -> list[Path]:
@@ -133,8 +209,13 @@ def fetch_batch(
     priority list they're required. Other sources consume the bbox plus
     whatever they support.
 
-    Returns the list of produced Paths (one per successful step). Steps
-    where every source in the priority list raised
+    *max_workers* controls step-level parallelism. When omitted, uses
+    :func:`default_max_workers` for the priority list — the minimum
+    throttle ceiling across the listed sources. Set to 1 for fully
+    serial downloads (useful when debugging or on very slow disks).
+
+    Returns the list of produced Paths in completion order (not request
+    order). Steps where every source in the priority list raised
     :class:`~sharktopus.sources.SourceUnavailable` are reported via
     *on_step_fail* and skipped; any other exception is re-raised.
     """
@@ -152,10 +233,12 @@ def fetch_batch(
             f"unknown source(s) in priority: {sorted(unknown)}. "
             f"registered: {registered_sources()}"
         )
+    if "nomads_filter" in priority and (variables is None or levels is None):
+        raise ValueError(
+            "'nomads_filter' in priority but variables/levels not set"
+        )
 
     bbox = (float(lon_w), float(lon_e), float(lat_s), float(lat_n))
-    # Shared kwargs. Each source's fetch_step ignores keys it doesn't
-    # know (they're all keyword-only) by us building per-source kwargs.
     common: dict[str, Any] = {
         "bbox": bbox,
         "pad_lon": pad_lon,
@@ -167,41 +250,50 @@ def fetch_batch(
     if root is not None:
         common["root"] = root
 
-    fxx_range = range(0, ext + 1, interval)
-    outputs: list[Path] = []
+    var_list = list(variables) if variables is not None else None
+    lev_list = list(levels) if levels is not None else None
 
+    fxx_range = list(range(0, ext + 1, interval))
+    jobs: list[tuple[str, str, int]] = []
     for stamp in timestamps:
         if len(stamp) != 10 or not stamp.isdigit():
             raise ValueError(f"timestamp must be YYYYMMDDHH, got {stamp!r}")
         date, cycle = stamp[:8], stamp[8:]
-
         for fxx in fxx_range:
-            errors: list[tuple[str, Exception]] = []
-            ok: Path | None = None
-            for name in priority:
-                fetch = _REGISTRY[name]
-                kwargs = dict(common)
-                if name == "nomads_filter":
-                    if variables is None or levels is None:
-                        raise ValueError(
-                            "'nomads_filter' in priority but variables/levels not set"
-                        )
-                    kwargs["variables"] = list(variables)
-                    kwargs["levels"] = list(levels)
-                try:
-                    ok = fetch(date, cycle, fxx, **kwargs)
-                    break
-                except SourceUnavailable as e:
-                    errors.append((name, e))
-                    continue
+            jobs.append((date, cycle, fxx))
+
+    n_workers = max_workers if max_workers is not None else default_max_workers(priority)
+    n_workers = max(1, min(n_workers, len(jobs)))
+
+    outputs: list[Path] = []
+
+    if n_workers == 1:
+        # Serial path — preserves strict ordering, useful for tests and
+        # slow-disk scenarios. No thread overhead either.
+        for date, cycle, fxx in jobs:
+            ok, errors = _one_step(date, cycle, fxx, priority, common, var_list, lev_list)
             if ok is not None:
                 outputs.append(ok)
                 if on_step_ok is not None:
                     on_step_ok(date, cycle, fxx, ok)
-            else:
-                if on_step_fail is not None:
-                    on_step_fail(date, cycle, fxx, errors)
-                # CONVECT's download_batch logs and moves on; we do the
-                # same so partial runs succeed.
+            elif on_step_fail is not None:
+                on_step_fail(date, cycle, fxx, errors)
+        return outputs
+
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        futures = {
+            pool.submit(_one_step, date, cycle, fxx, priority, common, var_list, lev_list):
+                (date, cycle, fxx)
+            for date, cycle, fxx in jobs
+        }
+        for fut in as_completed(futures):
+            date, cycle, fxx = futures[fut]
+            ok, errors = fut.result()
+            if ok is not None:
+                outputs.append(ok)
+                if on_step_ok is not None:
+                    on_step_ok(date, cycle, fxx, ok)
+            elif on_step_fail is not None:
+                on_step_fail(date, cycle, fxx, errors)
 
     return outputs

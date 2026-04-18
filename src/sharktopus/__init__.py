@@ -4,7 +4,8 @@ Layers available in this release:
 
 - :mod:`sharktopus.grib` — wgrib2 / .idx utilities (pure, no network).
 - :mod:`sharktopus.sources` — mirror-specific downloaders.
-  Currently: ``nomads`` (full-file) and ``nomads_filter`` (server-side subset).
+  Full-file mirrors: ``nomads``, ``aws``, ``gcloud``, ``azure``, ``rda``.
+  Server-side subset: ``nomads_filter``.
 - :mod:`sharktopus.batch` — iterate cycles × steps, falling back across
   sources by priority. :func:`fetch_batch` and :func:`generate_timestamps`
   are re-exported at the top level.

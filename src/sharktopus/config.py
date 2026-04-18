@@ -41,7 +41,7 @@ from typing import Any
 __all__ = ["ConfigError", "load_config", "BatchConfig"]
 
 
-_INT_KEYS = ("step", "ext", "interval")
+_INT_KEYS = ("step", "ext", "interval", "max_workers")
 _FLOAT_KEYS = ("lat_s", "lat_n", "lon_w", "lon_e", "pad_lon", "pad_lat")
 _LIST_KEYS = ("timestamps", "priority", "variables", "levels")
 _STR_KEYS = ("start", "end", "dest", "root", "product")

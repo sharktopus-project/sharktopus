@@ -21,14 +21,20 @@ Example
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import grib, paths
 from ._common import download_and_crop
-from .base import canonical_filename, validate_cycle, validate_date
+from .base import canonical_filename, supports_date, validate_cycle, validate_date
 
 CONTAINER = "gfs"
 BASE_URL = f"https://noaagfs.blob.core.windows.net/{CONTAINER}"
+
+# NOAA's Azure mirror rolled out with the wider NOAA Open Data program
+# in early 2021. Conservative lower bound; adjust if confirmed earlier.
+EARLIEST: datetime | None = datetime(2021, 1, 1, tzinfo=timezone.utc)
+RETENTION_DAYS: int | None = None
 
 # Azure Blob Storage default per-account IOPS ceiling is ~20k req/s,
 # vastly above anything a single fetch will hit; the real limiter is
@@ -36,7 +42,23 @@ BASE_URL = f"https://noaagfs.blob.core.windows.net/{CONTAINER}"
 # bandwidth saturated without starving the crop step.
 DEFAULT_MAX_WORKERS = 4
 
-__all__ = ["BASE_URL", "CONTAINER", "DEFAULT_MAX_WORKERS", "build_url", "fetch_step"]
+__all__ = [
+    "BASE_URL",
+    "CONTAINER",
+    "DEFAULT_MAX_WORKERS",
+    "EARLIEST",
+    "RETENTION_DAYS",
+    "build_url",
+    "fetch_step",
+    "supports",
+]
+
+
+def supports(date: str, cycle: str | None = None, *, now: datetime | None = None) -> bool:
+    """Return ``True`` if the Azure mirror plausibly has *date*."""
+    return supports_date(
+        date, earliest=EARLIEST, retention_days=RETENTION_DAYS, now=now
+    )
 
 
 def build_url(date: str, cycle: str, fxx: int, product: str = "pgrb2.0p25") -> str:

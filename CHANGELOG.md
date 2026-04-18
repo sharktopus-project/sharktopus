@@ -5,6 +5,35 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **Availability API.** Each source now exposes
+  `EARLIEST` (earliest date it's known to serve) and `RETENTION_DAYS`
+  (rolling-window size; `None` = unbounded), plus a
+  `supports(date, cycle=None, *, now=None) -> bool` helper.
+  `sharktopus.batch.available_sources(date, cycle=None)` and
+  `sharktopus.batch.DEFAULT_PRIORITY` expose the pre-filtered priority
+  list. `fetch_batch(priority=None)` now *auto-derives* the priority
+  from the first timestamp so recent dates fan out across the cloud
+  mirrors, 2015–2020 requests route to RDA, and pre-2015 requests fail
+  fast with `SourceUnavailable` instead of pinging every mirror in
+  vain. Users still pass `priority=[...]` when they want to pin it.
+- **WRF-canonical defaults.** New `sharktopus.wrf` module exposes
+  `DEFAULT_VARS` (13 fields: HGT/LAND/MSLET/PRES/PRMSL/RH/SOILL/SOILW/
+  SPFH/TMP/TSOIL/UGRD/VGRD) and `DEFAULT_LEVELS` (48 levels: full
+  1000→0.01 mb isobaric column + 4 soil layers + 2 m/10 m/surface/MSL),
+  matching CONVECT's production fetchers. `fetch_batch` now falls back
+  to these when `nomads_filter` is in priority and the caller omits
+  `variables` / `levels`. Pass your own lists to override — the library
+  never assumes WRF anywhere else.
+- **CLI introspection.** `sharktopus --list-sources` prints a
+  name/workers/earliest/retention table. `sharktopus --availability
+  YYYYMMDD` prints which sources can serve a given date (and why the
+  others can't). Both short-circuit before any network I/O.
+- `sharktopus.batch.source_supports(name, date, cycle=None, *, now=None)`
+  for programmatic queries. `register_source(..., supports=fn)` lets
+  custom mirrors plug in their own availability predicate.
+- `scripts/smoke_live.py` rewritten as a four-phase verbose walkthrough
+  (imports / CLI / per-source / availability) suitable for showing to
+  humans.
 - **Layer 1 complete** — four new full-file mirrors join the existing
   `nomads` / `nomads_filter` pair:
   - `sharktopus.sources.aws` — AWS Open Data bucket
@@ -87,6 +116,18 @@ All notable changes to this project will be documented here.
   and manual dispatch. Does not publish to PyPI yet.
 
 ### Changed
+- `fetch_batch` signature: `priority` default changes from
+  `("nomads_filter", "nomads")` to `None` (auto-derive from
+  availability). Callers pinning the old behavior should pass
+  `priority=("nomads_filter", "nomads")` explicitly. The old default
+  required `variables` + `levels` anyway, so most real calls already
+  pass a priority list.
+- `fetch_batch` now accepts `now: datetime | None = None` for tests
+  that need to freeze the availability clock.
+- `_common.download_and_crop` and all six source `fetch_step` functions
+  default `wgrib2=None` (was `"wgrib2"`, which silently bypassed the
+  resolver and missed the bundled binary when wgrib2 wasn't on
+  `$PATH`). `None` triggers `_wgrib2.ensure_wgrib2` normally.
 - `sources.nomads.fetch_step` refactored to call the shared
   `_common.download_and_crop` helper (no behavioural change — the
   verify / crop / cleanup sequence is identical, just deduplicated).

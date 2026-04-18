@@ -23,13 +23,20 @@ Example
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import grib, paths
 from ._common import download_and_crop
-from .base import canonical_filename, validate_cycle, validate_date
+from .base import canonical_filename, supports_date, validate_cycle, validate_date
 
 BASE_URL = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
+
+# Earliest day the NOAA BDP bucket is known to serve. Approximate; newer
+# cycles are always available. Override the module attribute if you
+# confirm a deeper history for your use case.
+EARLIEST: datetime | None = datetime(2021, 2, 27, tzinfo=timezone.utc)
+RETENTION_DAYS: int | None = None  # no rolling purge
 
 # Default concurrency when a caller asks the batch orchestrator to run
 # step downloads in parallel from this source. Tuned to CONVECT's
@@ -39,7 +46,22 @@ BASE_URL = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
 # a comfortable margin while still halving wall time vs serial.
 DEFAULT_MAX_WORKERS = 4
 
-__all__ = ["BASE_URL", "DEFAULT_MAX_WORKERS", "build_url", "fetch_step"]
+__all__ = [
+    "BASE_URL",
+    "DEFAULT_MAX_WORKERS",
+    "EARLIEST",
+    "RETENTION_DAYS",
+    "build_url",
+    "fetch_step",
+    "supports",
+]
+
+
+def supports(date: str, cycle: str | None = None, *, now: datetime | None = None) -> bool:
+    """Return ``True`` if the AWS Open Data bucket plausibly has *date*."""
+    return supports_date(
+        date, earliest=EARLIEST, retention_days=RETENTION_DAYS, now=now
+    )
 
 
 def build_url(date: str, cycle: str, fxx: int, product: str = "pgrb2.0p25") -> str:

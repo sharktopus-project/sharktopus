@@ -30,7 +30,13 @@ from pathlib import Path
 
 from .. import grib, paths
 from ._common import download_and_crop
-from .base import SourceUnavailable, canonical_filename, validate_cycle, validate_date
+from .base import (
+    SourceUnavailable,
+    canonical_filename,
+    supports_date,
+    validate_cycle,
+    validate_date,
+)
 
 DATASET = "d084001"
 BASE_URL = f"https://data.rda.ucar.edu/{DATASET}"
@@ -38,7 +44,8 @@ BASE_URL = f"https://data.rda.ucar.edu/{DATASET}"
 # Earliest date for which ds084.1 has 0.25° data. Requests older than
 # this raise SourceUnavailable up front so the orchestrator can fall
 # through to a different source (or nothing — RDA is our oldest mirror).
-EARLIEST = datetime(2015, 1, 15, tzinfo=timezone.utc)
+EARLIEST: datetime | None = datetime(2015, 1, 15, tzinfo=timezone.utc)
+RETENTION_DAYS: int | None = None  # NCAR keeps ds084.1 indefinitely
 
 # Be nice to academic infrastructure. NCAR has throttled aggressive
 # anonymous callers in the past; the CONVECT RDA script ran serial
@@ -60,10 +67,19 @@ __all__ = [
     "DATASET",
     "DEFAULT_MAX_WORKERS",
     "EARLIEST",
+    "RETENTION_DAYS",
     "build_url",
     "fetch_step",
     "rda_filename",
+    "supports",
 ]
+
+
+def supports(date: str, cycle: str | None = None, *, now: datetime | None = None) -> bool:
+    """Return ``True`` if RDA ds084.1 has *date* (on or after 2015-01-15)."""
+    return supports_date(
+        date, earliest=EARLIEST, retention_days=RETENTION_DAYS, now=now
+    )
 
 
 def build_url(date: str, cycle: str, fxx: int) -> str:

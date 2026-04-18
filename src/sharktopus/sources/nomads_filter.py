@@ -28,12 +28,15 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlencode
 
+from datetime import datetime
+
 from .. import grib, paths
 from .base import (
     SourceUnavailable,
     canonical_filename,
     check_retention,
     stream_download,
+    supports_date,
     validate_cycle,
     validate_date,
 )
@@ -41,14 +44,29 @@ from .base import (
 BASE_URL = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
 BASE_URL_1HR = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25_1hr.pl"
 RETENTION_DAYS = 10
+EARLIEST: datetime | None = None
+
+# NOMADS filter shares the origin rate-limiter with nomads itself.
+DEFAULT_MAX_WORKERS = 2
 
 __all__ = [
     "BASE_URL",
     "BASE_URL_1HR",
+    "DEFAULT_MAX_WORKERS",
+    "EARLIEST",
+    "RETENTION_DAYS",
     "build_url",
     "fetch_step",
     "level_to_param",
+    "supports",
 ]
+
+
+def supports(date: str, cycle: str | None = None, *, now: datetime | None = None) -> bool:
+    """Return ``True`` if NOMADS-filter can serve *date* given its rolling window."""
+    return supports_date(
+        date, earliest=EARLIEST, retention_days=RETENTION_DAYS, now=now
+    )
 
 
 def level_to_param(level: str) -> str:

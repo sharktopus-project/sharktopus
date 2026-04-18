@@ -104,6 +104,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # Introspection (short-circuits before any batch runs)
+    parser.add_argument(
+        "--list-sources", action="store_true",
+        help="Print registered sources (name, max workers, retention) and exit.",
+    )
+    parser.add_argument(
+        "--availability", metavar="YYYYMMDD",
+        help="Print which sources can serve this date (in priority order) and exit.",
+    )
+
     return parser
 
 
@@ -152,8 +162,10 @@ def _build_kwargs(merged: dict[str, Any]) -> dict[str, Any]:
         "lon_e": float(merged["lon_e"]),
         "ext": int(merged.get("ext", 24)),
         "interval": int(merged.get("interval", 3)),
-        "priority": tuple(merged.get("priority") or ("nomads_filter", "nomads")),
     }
+    pr = merged.get("priority")
+    if pr:  # explicit list wins; empty / missing → let fetch_batch auto-select
+        kwargs["priority"] = tuple(pr)
     for k in (
         "variables", "levels", "dest", "root", "product",
         "pad_lon", "pad_lat", "max_workers",
@@ -163,9 +175,57 @@ def _build_kwargs(merged: dict[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
+def _print_sources() -> None:
+    """Dump the source registry as a human-friendly table."""
+    from . import sources as _src
+
+    print(f"{'name':15s} {'workers':>8s}  {'earliest':>12s}  {'retention':>10s}")
+    print("-" * 55)
+    for name in batch.registered_sources():
+        mod = getattr(_src, name, None)
+        earliest = getattr(mod, "EARLIEST", None)
+        retention = getattr(mod, "RETENTION_DAYS", None)
+        earliest_s = earliest.date().isoformat() if earliest else "—"
+        retention_s = f"{retention}d" if retention else "∞"
+        workers = batch.source_default_workers(name)
+        print(f"{name:15s} {workers:>8d}  {earliest_s:>12s}  {retention_s:>10s}")
+
+
+def _print_availability(date: str) -> None:
+    """Dump which sources can serve *date* (YYYYMMDD), in default-priority order."""
+    avail = batch.available_sources(date)
+    other = [n for n in batch.registered_sources() if n not in avail]
+    print(f"Available for {date} (in default-priority order):")
+    for name in avail:
+        print(f"  {name}")
+    if not avail:
+        print("  (none)")
+    if other:
+        print()
+        print("Not available / skipped by default:")
+        for name in other:
+            mod = getattr(__import__("sharktopus.sources", fromlist=[name]), name, None)
+            earliest = getattr(mod, "EARLIEST", None)
+            retention = getattr(mod, "RETENTION_DAYS", None)
+            reasons = []
+            if earliest is not None:
+                reasons.append(f"starts {earliest.date().isoformat()}")
+            if retention is not None:
+                reasons.append(f"{retention}-day window")
+            reason = ", ".join(reasons) or "not in DEFAULT_PRIORITY"
+            print(f"  {name:15s} ({reason})")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.list_sources:
+        _print_sources()
+        return 0
+    if args.availability:
+        _print_availability(args.availability)
+        return 0
 
     cfg: dict[str, Any] = {}
     if args.config:
@@ -174,10 +234,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     merged = _merge(cfg, args)
     kwargs = _build_kwargs(merged)
 
+    pr_display = list(kwargs.get("priority") or ("<auto>",))
     print(
         f"[sharktopus] {len(kwargs['timestamps'])} cycle(s) × "
         f"{len(range(0, kwargs['ext'] + 1, kwargs['interval']))} step(s) "
-        f"via {list(kwargs['priority'])}",
+        f"via {pr_display}",
         file=sys.stderr,
     )
     try:

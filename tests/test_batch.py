@@ -158,17 +158,43 @@ def test_fetch_batch_passes_bbox_in_wgrib2_order(fake_registry):
     assert kwargs["bbox"] == (-48.0, -36.0, -28.0, -18.0)
 
 
-def test_fetch_batch_requires_vars_levels_for_nomads_filter(fake_registry):
-    _, make_source = fake_registry
+def test_fetch_batch_defaults_nomads_filter_to_wrf_vars_and_levels(fake_registry):
+    """When nomads_filter is in priority and caller omits vars/levels, fall
+    back to the WRF-canonical set (sharktopus.wrf.DEFAULT_VARS / _LEVELS)."""
+    calls, make_source = fake_registry
     batch._REGISTRY["nomads_filter"] = make_source("nomads_filter")
 
-    with pytest.raises(ValueError, match="variables/levels"):
-        batch.fetch_batch(
-            timestamps=["2024010200"],
-            lat_s=-10, lat_n=0, lon_w=-50, lon_e=-40,
-            ext=0, interval=3,
-            priority=["nomads_filter"],
-        )
+    from sharktopus import wrf
+
+    batch.fetch_batch(
+        timestamps=["2024010200"],
+        lat_s=-10, lat_n=0, lon_w=-50, lon_e=-40,
+        ext=0, interval=3,
+        priority=["nomads_filter"],
+    )
+
+    _, _, _, _, kwargs = calls[0]
+    assert kwargs["variables"] == list(wrf.DEFAULT_VARS)
+    assert kwargs["levels"] == list(wrf.DEFAULT_LEVELS)
+
+
+def test_fetch_batch_user_vars_levels_override_wrf_defaults(fake_registry):
+    """Explicit variables / levels win over the WRF-canonical defaults."""
+    calls, make_source = fake_registry
+    batch._REGISTRY["nomads_filter"] = make_source("nomads_filter")
+
+    batch.fetch_batch(
+        timestamps=["2024010200"],
+        lat_s=-10, lat_n=0, lon_w=-50, lon_e=-40,
+        ext=0, interval=3,
+        priority=["nomads_filter"],
+        variables=["TMP", "HGT"],
+        levels=["500 mb", "surface"],
+    )
+
+    _, _, _, _, kwargs = calls[0]
+    assert kwargs["variables"] == ["TMP", "HGT"]
+    assert kwargs["levels"] == ["500 mb", "surface"]
 
 
 def test_fetch_batch_rejects_unknown_source(fake_registry):

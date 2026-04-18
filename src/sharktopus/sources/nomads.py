@@ -21,6 +21,7 @@ Example
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from .. import grib, paths
@@ -28,18 +29,35 @@ from ._common import download_and_crop
 from .base import (
     canonical_filename,
     check_retention,
+    supports_date,
     validate_cycle,
     validate_date,
 )
 
 BASE_URL = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod"
 RETENTION_DAYS = 10
+EARLIEST: datetime | None = None  # rolling-window mirror, no fixed start
 
 # NOAA's origin infrastructure rate-limits aggressive callers aggressively —
 # we have observed 503s at 4+ concurrent connections from a single IP.
 DEFAULT_MAX_WORKERS = 2
 
-__all__ = ["BASE_URL", "DEFAULT_MAX_WORKERS", "build_url", "fetch_step"]
+__all__ = [
+    "BASE_URL",
+    "DEFAULT_MAX_WORKERS",
+    "EARLIEST",
+    "RETENTION_DAYS",
+    "build_url",
+    "fetch_step",
+    "supports",
+]
+
+
+def supports(date: str, cycle: str | None = None, *, now: datetime | None = None) -> bool:
+    """Return ``True`` if NOMADS can serve *date* given its rolling window."""
+    return supports_date(
+        date, earliest=EARLIEST, retention_days=RETENTION_DAYS, now=now
+    )
 
 
 def build_url(date: str, cycle: str, fxx: int, product: str = "pgrb2.0p25") -> str:

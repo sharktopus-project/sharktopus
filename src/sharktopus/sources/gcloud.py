@@ -20,14 +20,20 @@ Example
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import grib, paths
 from ._common import download_and_crop
-from .base import canonical_filename, validate_cycle, validate_date
+from .base import canonical_filename, supports_date, validate_cycle, validate_date
 
 BUCKET = "global-forecast-system"
 BASE_URL = f"https://storage.googleapis.com/{BUCKET}"
+
+# GCS mirror is the oldest cloud copy we've confirmed — its ``gfs.{date}``
+# prefix goes back to early 2021. Approximate; adjust if you know better.
+EARLIEST: datetime | None = datetime(2021, 1, 1, tzinfo=timezone.utc)
+RETENTION_DAYS: int | None = None
 
 # Conservative default to match CONVECT production. GCS XML API absorbs
 # high concurrency, but anonymous traffic is billed to the bucket owner
@@ -35,7 +41,23 @@ BASE_URL = f"https://storage.googleapis.com/{BUCKET}"
 # well below the per-IP QPS at which we've seen 429s.
 DEFAULT_MAX_WORKERS = 4
 
-__all__ = ["BASE_URL", "BUCKET", "DEFAULT_MAX_WORKERS", "build_url", "fetch_step"]
+__all__ = [
+    "BASE_URL",
+    "BUCKET",
+    "DEFAULT_MAX_WORKERS",
+    "EARLIEST",
+    "RETENTION_DAYS",
+    "build_url",
+    "fetch_step",
+    "supports",
+]
+
+
+def supports(date: str, cycle: str | None = None, *, now: datetime | None = None) -> bool:
+    """Return ``True`` if the GCS mirror plausibly has *date*."""
+    return supports_date(
+        date, earliest=EARLIEST, retention_days=RETENTION_DAYS, now=now
+    )
 
 
 def build_url(date: str, cycle: str, fxx: int, product: str = "pgrb2.0p25") -> str:

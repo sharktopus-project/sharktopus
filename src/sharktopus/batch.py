@@ -16,7 +16,13 @@ Source registry is a plain dict keyed by name. Built-in registrations:
 * ``azure`` — :mod:`sharktopus.sources.azure` (Azure Blob mirror)
 * ``rda`` — :mod:`sharktopus.sources.rda` (NCAR long-term archive)
 * ``nomads_filter`` — :mod:`sharktopus.sources.nomads_filter`
-  (server-side subset)
+  (server-side subset; opt-in only)
+
+Priority — :data:`DEFAULT_PRIORITY` is the preferred order when the
+caller doesn't pass ``priority=``. :func:`available_sources` filters
+it to the mirrors that can actually serve a given date. ``fetch_batch``
+wires those together so the common case is just
+``fetch_batch(timestamps=..., lat_s=..., ...)``.
 
 Concurrency — each source publishes a ``DEFAULT_MAX_WORKERS`` tuned
 below its mirror's observed throttling threshold. :func:`fetch_batch`
@@ -29,21 +35,24 @@ can override via ``max_workers=...``.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-from . import grib
+from . import grib, wrf
 from .sources import SourceUnavailable, aws, azure, gcloud, nomads, nomads_filter, rda
 
 __all__ = [
+    "DEFAULT_PRIORITY",
     "SourceRegistry",
+    "available_sources",
     "default_max_workers",
     "fetch_batch",
     "generate_timestamps",
     "register_source",
     "registered_sources",
     "source_default_workers",
+    "source_supports",
 ]
 
 
@@ -52,6 +61,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 _SourceFn = Callable[..., Path]
+_SupportsFn = Callable[..., bool]
 
 
 class SourceRegistry(dict[str, _SourceFn]):
@@ -67,31 +77,67 @@ _REGISTRY = SourceRegistry(
     rda=rda.fetch_step,
 )
 
-
-# Per-source concurrency ceiling. nomads and nomads_filter are capped
-# lower because NOAA's origin infrastructure is the only one with
-# observed throttling at low QPS. The cloud mirrors (aws/gcloud/azure)
-# absorb much more.
+# Per-source concurrency ceiling (read from each module).
 _WORKER_DEFAULTS: dict[str, int] = {
-    "nomads": 2,
-    "nomads_filter": 2,
+    "nomads": nomads.DEFAULT_MAX_WORKERS,
+    "nomads_filter": nomads_filter.DEFAULT_MAX_WORKERS,
     "aws": aws.DEFAULT_MAX_WORKERS,
     "gcloud": gcloud.DEFAULT_MAX_WORKERS,
     "azure": azure.DEFAULT_MAX_WORKERS,
     "rda": rda.DEFAULT_MAX_WORKERS,
 }
 
+# Per-source supports(date, cycle=None, *, now=None) -> bool.
+_SUPPORTS: dict[str, _SupportsFn] = {
+    "nomads": nomads.supports,
+    "nomads_filter": nomads_filter.supports,
+    "aws": aws.supports,
+    "gcloud": gcloud.supports,
+    "azure": azure.supports,
+    "rda": rda.supports,
+}
 
-def register_source(name: str, fetch_step: _SourceFn, *, max_workers: int = 1) -> None:
+
+# Default preference order when the caller doesn't pass ``priority=``.
+# Ordering reflects both availability and cost:
+#   * Cloud mirrors (gcloud/aws/azure) go first — high parallelism, no
+#     rolling-window surprises, and consistently fast.
+#   * rda picks up pre-2021 dates the cloud mirrors don't have.
+#   * nomads last because the origin infrastructure is the most
+#     rate-limited and useful mostly when the cycle is fresh enough
+#     that cloud mirrors haven't staged it yet.
+# ``nomads_filter`` is intentionally NOT here — its value is server-side
+# subsetting, which requires the caller to pass ``variables`` +
+# ``levels``. Include it explicitly in ``priority=`` when you want it.
+DEFAULT_PRIORITY: tuple[str, ...] = ("gcloud", "aws", "azure", "rda", "nomads")
+
+
+def register_source(
+    name: str,
+    fetch_step: _SourceFn,
+    *,
+    max_workers: int = 1,
+    supports: _SupportsFn | None = None,
+) -> None:
     """Register a source so :func:`fetch_batch` can route priority to it.
 
     *max_workers* becomes this source's published throttle ceiling (used
     by :func:`default_max_workers`). Default is 1 (serial) — you must
     opt in to parallelism explicitly once you've verified your mirror
     won't 429 / 503 under load.
+
+    *supports* is a ``(date, cycle=None, *, now=None) -> bool`` callable
+    that decides whether this source has a given date. The default
+    returns ``True`` (always available), which is fine for tests and
+    custom mirrors with no known lower bound.
     """
     _REGISTRY[name] = fetch_step
     _WORKER_DEFAULTS[name] = int(max_workers)
+    _SUPPORTS[name] = supports if supports is not None else _always_true
+
+
+def _always_true(*_a: Any, **_kw: Any) -> bool:
+    return True
 
 
 def registered_sources() -> list[str]:
@@ -101,6 +147,20 @@ def registered_sources() -> list[str]:
 def source_default_workers(name: str) -> int:
     """Return the published throttle ceiling for *name* (falls back to 1)."""
     return _WORKER_DEFAULTS.get(name, 1)
+
+
+def source_supports(
+    name: str,
+    date: str,
+    cycle: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Return ``True`` if source *name* can serve *date* (cycle optional)."""
+    fn = _SUPPORTS.get(name)
+    if fn is None:
+        return False
+    return fn(date, cycle, now=now)
 
 
 def default_max_workers(priority: Sequence[str]) -> int:
@@ -113,6 +173,23 @@ def default_max_workers(priority: Sequence[str]) -> int:
     if not priority:
         return 1
     return max(1, min(source_default_workers(n) for n in priority))
+
+
+def available_sources(
+    date: str,
+    cycle: str | None = None,
+    *,
+    now: datetime | None = None,
+    candidates: Sequence[str] | None = None,
+) -> list[str]:
+    """Return the subset of *candidates* (default :data:`DEFAULT_PRIORITY`) that can serve *date*.
+
+    Preserves the order of *candidates* so the return value is a valid
+    priority list directly. Pass ``candidates=registered_sources()`` to
+    scan every registered mirror, not just the default preference.
+    """
+    names = tuple(candidates) if candidates is not None else DEFAULT_PRIORITY
+    return [n for n in names if source_supports(n, date, cycle, now=now)]
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +259,7 @@ def fetch_batch(
     lon_e: float,
     ext: int = 24,
     interval: int = 3,
-    priority: Sequence[str] = ("nomads_filter", "nomads"),
+    priority: Sequence[str] | None = None,
     variables: Iterable[str] | None = None,
     levels: Iterable[str] | None = None,
     dest: str | Path | None = None,
@@ -191,6 +268,7 @@ def fetch_batch(
     pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
     pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
     max_workers: int | None = None,
+    now: datetime | None = None,
     on_step_ok: Callable[[str, str, int, Path], None] | None = None,
     on_step_fail: Callable[[str, str, int, list[tuple[str, Exception]]], None] | None = None,
 ) -> list[Path]:
@@ -202,8 +280,11 @@ def fetch_batch(
       (date + cycle concatenated).
     * *ext* is the forecast horizon in hours (so fxx runs 0..ext).
     * *interval* is the step between fxx values.
-    * *priority* is the list of source names (registered via
-      :func:`register_source`) tried in order per step.
+    * *priority* is the ordered list of source names tried per step.
+      ``None`` (the default) means "derive from :data:`DEFAULT_PRIORITY`
+      filtered to sources that can serve the first timestamp" — so
+      recent dates get the full cloud-mirror fan-out while pre-2021
+      dates automatically fall through to RDA.
 
     ``nomads_filter`` needs *variables* and *levels*; if it's in the
     priority list they're required. Other sources consume the bbox plus
@@ -213,6 +294,9 @@ def fetch_batch(
     :func:`default_max_workers` for the priority list — the minimum
     throttle ceiling across the listed sources. Set to 1 for fully
     serial downloads (useful when debugging or on very slow disks).
+
+    *now* lets tests freeze the clock used by availability filtering.
+    Leave it ``None`` in production.
 
     Returns the list of produced Paths in completion order (not request
     order). Steps where every source in the priority list raised
@@ -225,6 +309,16 @@ def fetch_batch(
         raise ValueError(f"ext must be >= 0, got {ext}")
     if interval <= 0:
         raise ValueError(f"interval must be > 0, got {interval}")
+
+    if priority is None:
+        first_date = str(timestamps[0])[:8]
+        first_cycle = str(timestamps[0])[8:10] if len(str(timestamps[0])) >= 10 else None
+        priority = available_sources(first_date, first_cycle, now=now)
+        if not priority:
+            raise SourceUnavailable(
+                f"no registered source can serve {first_date}. "
+                f"Checked: {list(DEFAULT_PRIORITY)}"
+            )
     if not priority:
         raise ValueError("priority must be non-empty")
     unknown = set(priority) - set(_REGISTRY)
@@ -233,10 +327,15 @@ def fetch_batch(
             f"unknown source(s) in priority: {sorted(unknown)}. "
             f"registered: {registered_sources()}"
         )
-    if "nomads_filter" in priority and (variables is None or levels is None):
-        raise ValueError(
-            "'nomads_filter' in priority but variables/levels not set"
-        )
+    if "nomads_filter" in priority:
+        # Fall back to the WRF-canonical set when the caller hasn't
+        # narrowed it down. Treat variables / levels independently so a
+        # caller can override just one (e.g. add GUST to DEFAULT_VARS
+        # while keeping the canonical level list).
+        if variables is None:
+            variables = wrf.DEFAULT_VARS
+        if levels is None:
+            levels = wrf.DEFAULT_LEVELS
 
     bbox = (float(lon_w), float(lon_e), float(lat_s), float(lat_n))
     common: dict[str, Any] = {

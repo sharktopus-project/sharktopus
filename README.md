@@ -61,23 +61,39 @@ ranges = byte_ranges(records, wanted={"TMP:500 mb", "UGRD:850 mb"}, total_size=5
 ```python
 import sharktopus
 
+# Default — auto-select the priority from availability of the first
+# timestamp (cloud mirrors for recent dates, RDA for pre-2021, etc.).
 sharktopus.fetch_batch(
     timestamps=["2024010200", "2024010206"],
     lat_s=-28, lat_n=-18, lon_w=-48, lon_e=-36,
     ext=24, interval=3,
-    # Try AWS first (fast + cheap), then GCloud, then NOMADS live
+)
+
+# Pin the priority when you know better
+sharktopus.fetch_batch(
+    timestamps=["2024010200"],
+    lat_s=-28, lat_n=-18, lon_w=-48, lon_e=-36,
+    ext=24, interval=3,
     priority=["aws", "gcloud", "nomads"],
 )
 
-# Mix origin + mirrors — `fetch_batch` falls through on SourceUnavailable
+# Server-side subset via nomads_filter — omitting variables / levels
+# falls back to the WRF-canonical set (sharktopus.wrf.DEFAULT_*).
 sharktopus.fetch_batch(
     timestamps=["2024010200"],
     lat_s=-28, lat_n=-18, lon_w=-48, lon_e=-36,
     ext=24, interval=3,
     priority=["nomads_filter", "nomads"],
-    variables=["TMP", "UGRD", "VGRD", "HGT"],     # nomads_filter only
+    variables=["TMP", "UGRD", "VGRD", "HGT"],   # override defaults
     levels=["500 mb", "850 mb", "surface"],
 )
+
+# Ask the library which mirrors have a given date before running
+from sharktopus import batch
+batch.available_sources("20180601")
+# -> ['rda']
+batch.available_sources("20240101")
+# -> ['gcloud', 'aws', 'azure', 'rda']
 ```
 
 **(b) Command line** (CLI flags mirror CONVECT's `download_batch_cli.py`)
@@ -125,18 +141,45 @@ on typos.
 
 Six sources, all registered at import time:
 
-| Name            | Endpoint                                            | Retention     | Strategy                  |
-|-----------------|-----------------------------------------------------|---------------|---------------------------|
-| `nomads`        | `nomads.ncep.noaa.gov` (origin)                     | ~10 days      | Full download + local crop |
-| `nomads_filter` | `nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl`   | ~10 days      | Server-side subset         |
-| `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | ~2 years      | Full download + local crop |
-| `gcloud`        | `storage.googleapis.com/global-forecast-system`     | long          | Full download + local crop |
-| `azure`         | `noaagfs.blob.core.windows.net/gfs`                 | long          | Full download + local crop |
-| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | since 2015-01 | Full download + local crop |
+| Name            | Endpoint                                            | Earliest   | Retention  | Strategy                   |
+|-----------------|-----------------------------------------------------|------------|------------|----------------------------|
+| `nomads`        | `nomads.ncep.noaa.gov` (origin)                     | rolling    | ~10 days   | Full download + local crop |
+| `nomads_filter` | `nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl`   | rolling    | ~10 days   | Server-side subset         |
+| `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | 2021-02-27 | indefinite | Full download + local crop |
+| `gcloud`        | `storage.googleapis.com/global-forecast-system`     | 2021-01-01 | indefinite | Full download + local crop |
+| `azure`         | `noaagfs.blob.core.windows.net/gfs`                 | 2021-01-01 | indefinite | Full download + local crop |
+| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | 2015-01-15 | indefinite | Full download + local crop |
 
 All are anonymous — no accounts, no API keys, no SDK installs. RDA
 accepts an optional `SHARKTOPUS_RDA_COOKIE` env var for the rare files
 behind login.
+
+The `Earliest` column is what `EARLIEST` is set to in each source
+module — approximate and intentionally conservative. Every source also
+exposes a `supports(date, cycle=None)` predicate, which
+`batch.available_sources(date)` uses to filter `DEFAULT_PRIORITY`
+before `fetch_batch` touches the network. Command-line shortcut:
+
+```bash
+sharktopus --list-sources                  # name/workers/earliest/retention table
+sharktopus --availability 20240101          # which mirrors can serve this date
+```
+
+Default priority when the caller does not pass `priority=`:
+`gcloud > aws > azure > rda > nomads` — cloud mirrors first for their
+throughput and stable retention, NOMADS last as a rate-limited origin
+fallback. `nomads_filter` is **opt-in** because its value comes from
+server-side variable/level subsetting: include it in `priority=`
+explicitly when you want it.
+
+**WRF-canonical defaults.** When `nomads_filter` is in the priority
+list and the caller doesn't pass `variables` / `levels`,
+`fetch_batch` falls back to `sharktopus.wrf.DEFAULT_VARS` (13 fields)
+and `sharktopus.wrf.DEFAULT_LEVELS` (48 levels) — the minimum set WPS
+needs to build WRF boundary conditions. Pass your own lists to
+override when you care about a different subset
+(e.g. just `TMP @ 500 mb` for a quick check, or radiation fluxes for
+a cloud-study).
 
 **Anti-throttle defaults.** Each source publishes a conservative
 `DEFAULT_MAX_WORKERS` tuned below its observed throttle threshold.

@@ -17,6 +17,8 @@ from typing import Callable
 __all__ = [
     "SourceUnavailable",
     "canonical_filename",
+    "check_retention",
+    "supports_date",
     "validate_cycle",
     "validate_date",
     "stream_download",
@@ -132,3 +134,29 @@ def check_retention(date: str, *, days: int, now: datetime | None = None) -> Non
         raise SourceUnavailable(
             f"date {date} is older than retention window ({days} days)"
         )
+
+
+def supports_date(
+    date: str,
+    *,
+    earliest: datetime | None,
+    retention_days: int | None,
+    now: datetime | None = None,
+) -> bool:
+    """Return ``True`` if *date* falls inside a source's serving window.
+
+    *earliest* is the oldest date the mirror ever published (``None`` =
+    no lower bound known). *retention_days* is the rolling window size
+    in days (``None`` = the mirror keeps data indefinitely).
+
+    Used by per-source ``supports()`` helpers so ``batch.available_sources``
+    can filter the default priority list before hitting the network.
+    """
+    dt = validate_date(date)
+    if earliest is not None and dt < earliest:
+        return False
+    if retention_days is not None:
+        now = now or datetime.now(tz=timezone.utc)
+        if dt < now - timedelta(days=retention_days):
+            return False
+    return True

@@ -148,17 +148,31 @@ Six sources, all registered at import time:
 | `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | 2021-02-27 | indefinite | Full download / **idx byte-range** |
 | `gcloud`        | `storage.googleapis.com/global-forecast-system`     | 2021-01-01 | indefinite | Full download / **idx byte-range** |
 | `azure`         | `noaagfs.blob.core.windows.net/gfs`                 | 2021-01-01 | indefinite | Full download / **idx byte-range** |
-| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | 2015-01-15 | indefinite | Full download + local crop       |
+| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | 2015-01-15 | indefinite | Full download + local crop *(no idx sidecar)* |
 
 **Byte-range mode.** When you pass both `variables=` and `levels=`,
 the four NCEP-layout mirrors (`nomads`, `aws`, `gcloud`, `azure`)
 switch from "download the whole 500 MB GRIB, crop locally" to
 "fetch the tiny `.idx`, compute merged HTTP Range requests, download
-only the requested records in parallel". Typical transfer drops from
-500 MB → ~1-15 MB and wall time from ~50 s → ~1-3 s per step. It's
-the same pattern Herbie uses and is a strict superset of
-`nomads_filter` because it works on **any date** the mirror serves,
-not just the last 10 days.
+only the requested records in parallel". It's the same pattern Herbie
+uses and is a strict superset of `nomads_filter` because it works on
+**any date** the mirror serves, not just the last 10 days.
+`rda` does **not** participate — NCAR's ds084.1 does not publish
+`.idx` sidecars, so RDA always downloads the full file and crops
+locally (same result, just wider on the wire).
+
+Measured end-to-end for the WRF-canonical set (13 vars × 49 levels =
+269 records, ~485 KB after local crop), `f000 00Z` on 2026-04-17:
+
+| Source  | Byte-range + crop | Full-file + crop | Speed-up |
+|---------|-------------------|------------------|----------|
+| nomads  |              21 s |             53 s |     2.5× |
+| gcloud  |              35 s |             47 s |     1.4× |
+| aws     |              50 s |             52 s |       ≈  |
+| azure   |              51 s |            213 s |     4.2× |
+
+For a narrow subset (e.g. `TMP/UGRD/VGRD @ 500,850 mb`) the transfer
+drops into the low-MB range and wall time into the 1-5 s band.
 
 ```python
 sharktopus.fetch_batch(
@@ -196,7 +210,7 @@ explicitly when you want it.
 **WRF-canonical defaults.** When `nomads_filter` is in the priority
 list and the caller doesn't pass `variables` / `levels`,
 `fetch_batch` falls back to `sharktopus.wrf.DEFAULT_VARS` (13 fields)
-and `sharktopus.wrf.DEFAULT_LEVELS` (48 levels) — the minimum set WPS
+and `sharktopus.wrf.DEFAULT_LEVELS` (49 levels) — the minimum set WPS
 needs to build WRF boundary conditions. Pass your own lists to
 override when you care about a different subset
 (e.g. just `TMP @ 500 mb` for a quick check, or radiation fluxes for

@@ -4,6 +4,16 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-04-18
+
+First tagged release. Layers 0, 1, 2 and 5 of the roadmap are complete:
+GRIB utilities (wgrib2 wrappers + `.idx` parser + byte-range computer),
+six sources (`nomads`, `nomads_filter`, `aws`, `gcloud`, `azure`, `rda`)
+with byte-range mode on the four NCEP-layout mirrors, orchestrator
+`fetch_batch()` with auto-priority from the availability API, and CLI
+with INI-config support. Cloud-side cropping (Layers 3-4) is planned
+for v0.2.
+
 ### Added
 - **Byte-range download via `.idx`** (ported from CONVECT, feature parity
   with Herbie). When the caller passes `variables=` and `levels=` to any
@@ -38,6 +48,11 @@ All notable changes to this project will be documented here.
 - `scripts/smoke_live.py` gains Phase 3b — byte-range fetch from aws /
   gcloud / azure / nomads with a narrow (`TMP/UGRD/VGRD @ 500, 850 mb`)
   selection, so the size/latency delta vs Phase 3 is visible at a glance.
+  Phase 3b also runs the **WRF-canonical selection** (13 vars × 48
+  levels = 269 records, ~485 KB after local crop) on each mirror to
+  exercise the full production path. Measured on 2026-04-17 f000:
+  nomads 21 s, gcloud 35 s, aws 50 s, azure 51 s — vs 53/47/52/213 s
+  for the equivalent full-file downloads.
 - **Availability API.** Each source now exposes
   `EARLIEST` (earliest date it's known to serve) and `RETENTION_DAYS`
   (rolling-window size; `None` = unbounded), plus a
@@ -51,7 +66,7 @@ All notable changes to this project will be documented here.
   vain. Users still pass `priority=[...]` when they want to pin it.
 - **WRF-canonical defaults.** New `sharktopus.wrf` module exposes
   `DEFAULT_VARS` (13 fields: HGT/LAND/MSLET/PRES/PRMSL/RH/SOILL/SOILW/
-  SPFH/TMP/TSOIL/UGRD/VGRD) and `DEFAULT_LEVELS` (48 levels: full
+  SPFH/TMP/TSOIL/UGRD/VGRD) and `DEFAULT_LEVELS` (49 levels: full
   1000→0.01 mb isobaric column + 4 soil layers + 2 m/10 m/surface/MSL),
   matching CONVECT's production fetchers. `fetch_batch` now falls back
   to these when `nomads_filter` is in priority and the caller omits

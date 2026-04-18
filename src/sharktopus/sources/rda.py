@@ -12,6 +12,15 @@ account; set ``SHARKTOPUS_RDA_COOKIE`` (the value of the
 ``rda-cookie`` header after logging in to
 https://rda.ucar.edu/login/) and we'll pass it on requests.
 
+.. note::
+   RDA does **not** publish ``.idx`` sidecars next to the GRIB2
+   files, so the byte-range mode the other four mirrors support is
+   not available here. ``fetch_step`` always downloads the full file
+   and crops locally. For variable/level subset on an old date, you
+   still get the spatial crop; if that's not enough, filter the
+   resulting file with ``sharktopus.grib.filter_vars_levels``
+   afterwards.
+
 Example
 -------
 

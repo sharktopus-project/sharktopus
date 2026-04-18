@@ -200,6 +200,18 @@ def phase_byte_range() -> None:
             levels=narrow_levels,
         )
 
+    sub(
+        f"WRF-canonical byte-range ({len(wrf.DEFAULT_VARS)} vars × "
+        f"{len(wrf.DEFAULT_LEVELS)} levels)"
+    )
+    for name, source in [("aws", aws), ("gcloud", gcloud), ("azure", azure), ("nomads", nomads)]:
+        run_source(
+            f"{name} (byte-range, WRF full)",
+            source,
+            variables=list(wrf.DEFAULT_VARS),
+            levels=list(wrf.DEFAULT_LEVELS),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Phase 4 — availability at 5 historical dates

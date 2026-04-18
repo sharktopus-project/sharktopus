@@ -227,6 +227,14 @@ def generate_timestamps(start: str, end: str, step: int = 6) -> list[str]:
 # Batch orchestrator
 # ---------------------------------------------------------------------------
 
+# Full-file mirrors that also support byte-range mode when the caller
+# passes variables + levels. nomads_filter is separate because it needs
+# server-side subsetting (variables/levels mandatory, no fallback). rda
+# uses a validity-time filename with a non-standard sibling index, so it
+# stays full-file-only for now.
+_BYTE_RANGE_CAPABLE = frozenset({"aws", "azure", "gcloud", "nomads"})
+
+
 def _one_step(
     date: str, cycle: str, fxx: int,
     priority: Sequence[str],
@@ -242,6 +250,9 @@ def _one_step(
         if name == "nomads_filter":
             kwargs["variables"] = list(variables or [])
             kwargs["levels"] = list(levels or [])
+        elif name in _BYTE_RANGE_CAPABLE and variables and levels:
+            kwargs["variables"] = list(variables)
+            kwargs["levels"] = list(levels)
         try:
             return fetch(date, cycle, fxx, **kwargs), errors
         except SourceUnavailable as e:

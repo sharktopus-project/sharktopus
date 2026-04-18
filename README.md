@@ -141,14 +141,35 @@ on typos.
 
 Six sources, all registered at import time:
 
-| Name            | Endpoint                                            | Earliest   | Retention  | Strategy                   |
-|-----------------|-----------------------------------------------------|------------|------------|----------------------------|
-| `nomads`        | `nomads.ncep.noaa.gov` (origin)                     | rolling    | ~10 days   | Full download + local crop |
-| `nomads_filter` | `nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl`   | rolling    | ~10 days   | Server-side subset         |
-| `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | 2021-02-27 | indefinite | Full download + local crop |
-| `gcloud`        | `storage.googleapis.com/global-forecast-system`     | 2021-01-01 | indefinite | Full download + local crop |
-| `azure`         | `noaagfs.blob.core.windows.net/gfs`                 | 2021-01-01 | indefinite | Full download + local crop |
-| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | 2015-01-15 | indefinite | Full download + local crop |
+| Name            | Endpoint                                            | Earliest   | Retention  | Strategies                       |
+|-----------------|-----------------------------------------------------|------------|------------|----------------------------------|
+| `nomads`        | `nomads.ncep.noaa.gov` (origin)                     | rolling    | ~10 days   | Full download / **idx byte-range** |
+| `nomads_filter` | `nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl`   | rolling    | ~10 days   | Server-side subset               |
+| `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | 2021-02-27 | indefinite | Full download / **idx byte-range** |
+| `gcloud`        | `storage.googleapis.com/global-forecast-system`     | 2021-01-01 | indefinite | Full download / **idx byte-range** |
+| `azure`         | `noaagfs.blob.core.windows.net/gfs`                 | 2021-01-01 | indefinite | Full download / **idx byte-range** |
+| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | 2015-01-15 | indefinite | Full download + local crop       |
+
+**Byte-range mode.** When you pass both `variables=` and `levels=`,
+the four NCEP-layout mirrors (`nomads`, `aws`, `gcloud`, `azure`)
+switch from "download the whole 500 MB GRIB, crop locally" to
+"fetch the tiny `.idx`, compute merged HTTP Range requests, download
+only the requested records in parallel". Typical transfer drops from
+500 MB → ~1-15 MB and wall time from ~50 s → ~1-3 s per step. It's
+the same pattern Herbie uses and is a strict superset of
+`nomads_filter` because it works on **any date** the mirror serves,
+not just the last 10 days.
+
+```python
+sharktopus.fetch_batch(
+    timestamps=["2024010200"],
+    lat_s=-28, lat_n=-18, lon_w=-48, lon_e=-36,
+    ext=24, interval=3,
+    priority=["gcloud", "aws"],
+    variables=["TMP", "UGRD", "VGRD"],         # triggers byte-range mode
+    levels=["500 mb", "850 mb"],
+)
+```
 
 All are anonymous — no accounts, no API keys, no SDK installs. RDA
 accepts an optional `SHARKTOPUS_RDA_COOKIE` env var for the rare files

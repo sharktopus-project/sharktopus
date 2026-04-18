@@ -5,6 +5,39 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **Byte-range download via `.idx`** (ported from CONVECT, feature parity
+  with Herbie). When the caller passes `variables=` and `levels=` to any
+  of the four NCEP-layout mirrors (`nomads`, `aws`, `gcloud`, `azure`),
+  `fetch_step` switches from "download the whole 500 MB GRIB, crop
+  locally" to "fetch the tiny `.idx`, compute merged HTTP Range
+  requests, download only the matching records in parallel, then
+  optionally crop locally". Typical transfer drops from ~500 MB to
+  ~1-15 MB and wall time from ~50 s to ~1-3 s per step. Works for
+  **any date** the mirror serves, so it's a strict superset of
+  `nomads_filter` (which is limited to the last ~10 days).
+  `fetch_batch` forwards `variables`/`levels` to every byte-range-capable
+  source, so you only set them once at the orchestrator level.
+- New low-level helpers in `sharktopus.sources.base`:
+  `fetch_text(url, ...)` for tiny text payloads (the `.idx` itself),
+  `head_size(url, ...)` for file-size discovery (with a
+  `Range: bytes=0-0` fallback when HEAD is rejected by S3-style hosts),
+  and `stream_byte_ranges(url, ranges, dst, *, max_workers=N, ...)` that
+  downloads ranges in parallel via `ThreadPoolExecutor` and concatenates
+  them in original order for a valid GRIB2 stream.
+- New pipeline helper
+  `sharktopus.sources._common.download_byte_ranges_and_crop(...)` that
+  wraps `fetch_text → parse_idx → filter → head_size → byte_ranges →
+  stream_byte_ranges → optional local crop → verify`. Each full-file
+  source's `fetch_step` dispatches to it when `variables`+`levels` are
+  both provided.
+- 14 new tests in `test_byte_range.py` covering: `.idx` fetch, HEAD
+  fallback, parallel range download with out-of-order futures (order
+  preserved), no-match detection, empty-ranges rejection, 404
+  propagation, and the full `download_byte_ranges_and_crop` pipeline
+  with a deterministic in-memory payload.
+- `scripts/smoke_live.py` gains Phase 3b — byte-range fetch from aws /
+  gcloud / azure / nomads with a narrow (`TMP/UGRD/VGRD @ 500, 850 mb`)
+  selection, so the size/latency delta vs Phase 3 is visible at a glance.
 - **Availability API.** Each source now exposes
   `EARLIEST` (earliest date it's known to serve) and `RETENTION_DAYS`
   (rolling-window size; `None` = unbounded), plus a

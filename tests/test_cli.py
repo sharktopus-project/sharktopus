@@ -83,9 +83,11 @@ def test_cli_flag_overrides_config(tmp_path, stub_registry):
         variables = TMP
         levels = 500 mb
     """).lstrip())
-    # Override priority → nomads (no vars/levels needed)
-    cli.main(["--config", str(cfg), "--priority", "nomads"])
-    assert all(c.get("variables") != ["TMP"] for c in stub_registry)
+    # Override ext via flag → confirms CLI flag overrides config key.
+    # (Byte-range mode means variables/levels are now meaningful for
+    # full-file mirrors too, so we assert on ext, which is unambiguous.)
+    cli.main(["--config", str(cfg), "--ext", "6"])
+    assert len(stub_registry) == 3  # fxx=0, 3, 6 at interval=3
 
 
 def test_cli_missing_bbox_errors(stub_registry):

@@ -185,6 +185,22 @@ def phase_per_source() -> None:
     run_source("rda", rda)
 
 
+def phase_byte_range() -> None:
+    """Phase 3b — .idx-driven byte-range download on every mirror that supports it."""
+    header("3b. Byte-range mode (idx-driven partial fetch) — TMP/UGRD/VGRD @ 500 mb, 850 mb")
+
+    narrow_vars = ["TMP", "UGRD", "VGRD"]
+    narrow_levels = ["500 mb", "850 mb"]
+
+    for name, source in [("aws", aws), ("gcloud", gcloud), ("azure", azure), ("nomads", nomads)]:
+        run_source(
+            f"{name} (byte-range)",
+            source,
+            variables=narrow_vars,
+            levels=narrow_levels,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Phase 4 — availability at 5 historical dates
 # ---------------------------------------------------------------------------
@@ -217,6 +233,7 @@ def main() -> None:
     phase_imports()
     phase_cli()
     phase_per_source()
+    phase_byte_range()
     phase_availability()
 
     print()

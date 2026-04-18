@@ -24,8 +24,10 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from typing import Sequence
+
 from .. import grib, paths
-from ._common import download_and_crop
+from ._common import download_and_crop, download_byte_ranges_and_crop
 from .base import (
     canonical_filename,
     check_retention,
@@ -79,6 +81,9 @@ def fetch_step(
     pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
     pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
     product: str = "pgrb2.0p25",
+    variables: Sequence[str] | None = None,
+    levels: Sequence[str] | None = None,
+    max_workers: int = DEFAULT_MAX_WORKERS,
     timeout: float = 60.0,
     max_retries: int = 3,
     retry_wait: float = 10.0,
@@ -152,6 +157,16 @@ def fetch_step(
         dest_dir = Path(dest)
         dest_dir.mkdir(parents=True, exist_ok=True)
     final = dest_dir / canonical_filename(cycle, fxx, product=product)
+
+    if variables and levels:
+        return download_byte_ranges_and_crop(
+            url, final,
+            variables=variables, levels=levels,
+            bbox=bbox, pad_lon=pad_lon, pad_lat=pad_lat,
+            max_workers=max_workers,
+            timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
+            verify=verify, wgrib2=wgrib2,
+        )
 
     return download_and_crop(
         url, final,

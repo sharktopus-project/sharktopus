@@ -4,6 +4,33 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+### Added
+- **Cross-mirror `.idx` borrowing for RDA.** NCAR's ds084.1 does not
+  publish `.idx` sidecars, but its GRIB2 files are byte-identical to
+  the four NCEP-layout mirrors. When the caller passes
+  `variables`+`levels` to `rda.fetch_step`, it now probes
+  `aws → gcloud → azure` for the matching `.idx`, parses it, and
+  issues HTTP Range requests against the RDA URL itself — record
+  offsets are the same in every mirror's copy. Transfer drops from
+  ~500 MB per file to ~1-15 MB, matching what the NCEP-layout sources
+  already get.
+- **Full-file fallback for the RDA-only pre-2021 window.** For dates
+  the cloud mirrors do not cover (2015-01-15 → 2021-02-26), no
+  sibling idx exists, so `download_byte_ranges_and_crop` transparently
+  downloads the full file and filters locally with `wgrib2 -match`.
+  The caller still receives exactly the requested subset; only the
+  on-the-wire transfer is wider.
+- `download_byte_ranges_and_crop` grows two kwargs: `sibling_urls`
+  (list of byte-identical mirror GRIB2 URLs whose `.idx` may be
+  borrowed) and `allow_full_file_fallback` (when every idx URL 404s,
+  download + filter locally instead of raising). `batch._BYTE_RANGE_CAPABLE`
+  gains `"rda"`.
+- 4 new tests in `test_byte_range.py` covering the sibling-idx paths:
+  borrows sibling when primary 404s, tries siblings in order, full-file
+  fallback when all idx 404 and fallback is enabled, raises
+  `SourceUnavailable` (citing the count of tried sources) when fallback
+  is disabled.
+
 ## [0.1.0] — 2026-04-18
 
 First tagged release. Layers 0, 1, 2 and 5 of the roadmap are complete:

@@ -283,3 +283,108 @@ def test_download_byte_ranges_merges_adjacent_records(monkeypatch, tmp_path):
     # HEAD uses Range: 0-0 as fallback only when HEAD fails — here we provide
     # Content-Length, so HEAD succeeds without a Range call.
     assert call_counter["range_requests"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Cross-mirror idx borrowing (RDA feature) + full-file fallback
+# ---------------------------------------------------------------------------
+
+def test_download_byte_ranges_borrows_sibling_idx_when_primary_missing(
+    monkeypatch, tmp_path
+):
+    """Primary .idx 404s, sibling's idx is used; byte-range still hits primary URL."""
+    grib_payload = b"X" * 1000
+    opener = _opener_with(
+        {
+            # primary has the data but no idx
+            "http://rda/y.grib2": grib_payload,
+            # sibling (AWS) publishes the idx; its .grib2 is not fetched
+            "http://aws/y.grib2.idx": IDX_TEXT.encode(),
+        },
+        head_by_url={"http://rda/y.grib2": 1000},
+    )
+    _inject_opener(monkeypatch, opener)
+
+    dst = tmp_path / "out.grib2"
+    _common.download_byte_ranges_and_crop(
+        "http://rda/y.grib2", dst,
+        variables=["TMP", "UGRD"], levels=["500 mb"],
+        sibling_urls=["http://aws/y.grib2"],
+        verify=False, max_retries=1, retry_wait=0,
+    )
+    # Same merged 0-249 range as the single-source case, but data came from RDA.
+    assert dst.read_bytes() == grib_payload[0:250]
+
+
+def test_download_byte_ranges_tries_siblings_in_order(monkeypatch, tmp_path):
+    """Probe primary → sibling[0] → sibling[1]; stop at first 200."""
+    grib_payload = b"X" * 1000
+    opener = _opener_with(
+        {
+            "http://rda/y.grib2": grib_payload,
+            # Only the 2nd sibling (azure) serves the idx — gcloud 404s too.
+            "http://azure/y.grib2.idx": IDX_TEXT.encode(),
+        },
+        head_by_url={"http://rda/y.grib2": 1000},
+    )
+    _inject_opener(monkeypatch, opener)
+
+    dst = tmp_path / "out.grib2"
+    _common.download_byte_ranges_and_crop(
+        "http://rda/y.grib2", dst,
+        variables=["TMP"], levels=["500 mb"],
+        sibling_urls=["http://gcloud/y.grib2", "http://azure/y.grib2"],
+        verify=False, max_retries=1, retry_wait=0,
+    )
+    assert dst.read_bytes() == grib_payload[0:100]
+
+
+def test_download_byte_ranges_full_file_fallback(monkeypatch, tmp_path):
+    """When primary + all siblings 404 on idx and fallback is allowed,
+    the full GRIB is downloaded and filtered locally."""
+    grib_payload = b"FULL-GRIB-PAYLOAD"
+    opener = _opener_with(
+        {
+            "http://rda/y.grib2": grib_payload,
+            # no .idx anywhere
+        },
+    )
+    _inject_opener(monkeypatch, opener)
+
+    # Stub filter_vars_levels — we aren't testing wgrib2, just the plumbing.
+    called = {}
+
+    def fake_filter(src, dst, *, variables, levels, wgrib2=None):
+        called["args"] = (
+            src.read_bytes(), list(variables), list(levels),
+        )
+        dst.write_bytes(b"FILTERED")
+
+    monkeypatch.setattr(_common.grib, "filter_vars_levels", fake_filter)
+
+    dst = tmp_path / "out.grib2"
+    _common.download_byte_ranges_and_crop(
+        "http://rda/y.grib2", dst,
+        variables=["TMP"], levels=["500 mb"],
+        sibling_urls=["http://aws/y.grib2", "http://gcloud/y.grib2"],
+        allow_full_file_fallback=True,
+        verify=False, max_retries=1, retry_wait=0,
+    )
+
+    assert called["args"] == (grib_payload, ["TMP"], ["500 mb"])
+    assert dst.read_bytes() == b"FILTERED"
+
+
+def test_download_byte_ranges_no_idx_and_no_fallback_raises(monkeypatch, tmp_path):
+    """All idx 404s and fallback disabled → SourceUnavailable citing the count."""
+    opener = _opener_with({"http://rda/y.grib2": b"X" * 100})
+    _inject_opener(monkeypatch, opener)
+
+    with pytest.raises(SourceUnavailable, match="tried 3 sources"):
+        _common.download_byte_ranges_and_crop(
+            "http://rda/y.grib2", tmp_path / "out",
+            variables=["TMP"], levels=["500 mb"],
+            sibling_urls=["http://aws/y.grib2", "http://gcloud/y.grib2"],
+            allow_full_file_fallback=False,
+            verify=False, max_retries=1, retry_wait=0,
+        )

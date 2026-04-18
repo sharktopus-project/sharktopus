@@ -148,7 +148,7 @@ Six sources, all registered at import time:
 | `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | 2021-02-27 | indefinite | Full download / **idx byte-range** |
 | `gcloud`        | `storage.googleapis.com/global-forecast-system`     | 2021-01-01 | indefinite | Full download / **idx byte-range** |
 | `azure`         | `noaagfs.blob.core.windows.net/gfs`                 | 2021-01-01 | indefinite | Full download / **idx byte-range** |
-| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | 2015-01-15 | indefinite | Full download + local crop *(no idx sidecar)* |
+| `rda`           | `data.rda.ucar.edu/d084001` (NCAR)                  | 2015-01-15 | indefinite | Full download / **borrowed idx byte-range** *(sibling AWS/GCloud/Azure; full-file fallback for pre-2021)* |
 
 **Byte-range mode.** When you pass both `variables=` and `levels=`,
 the four NCEP-layout mirrors (`nomads`, `aws`, `gcloud`, `azure`)
@@ -157,9 +157,15 @@ switch from "download the whole 500 MB GRIB, crop locally" to
 only the requested records in parallel". It's the same pattern Herbie
 uses and is a strict superset of `nomads_filter` because it works on
 **any date** the mirror serves, not just the last 10 days.
-`rda` does **not** participate — NCAR's ds084.1 does not publish
-`.idx` sidecars, so RDA always downloads the full file and crops
-locally (same result, just wider on the wire).
+`rda` participates **via borrowed idx**: NCAR's ds084.1 does not
+publish `.idx` sidecars of its own, but its GRIB2 files are
+byte-identical to the NCEP mirrors (AWS/GCloud/Azure), so the idx
+records — and their offsets — transfer 1:1. When you pass
+`variables`+`levels`, RDA probes each sibling's `.idx` in turn and
+issues HTTP Range requests against the RDA URL itself. For the
+pre-2021 window that **only** RDA covers (no sibling idx exists),
+it transparently falls back to a full download followed by
+`wgrib2 -match`, producing the same subset on disk.
 
 Measured end-to-end for the WRF-canonical set (13 vars × 49 levels =
 269 records, ~485 KB after local crop), `f000 00Z` on 2026-04-17:

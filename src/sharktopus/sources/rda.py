@@ -13,13 +13,16 @@ account; set ``SHARKTOPUS_RDA_COOKIE`` (the value of the
 https://rda.ucar.edu/login/) and we'll pass it on requests.
 
 .. note::
-   RDA does **not** publish ``.idx`` sidecars next to the GRIB2
-   files, so the byte-range mode the other four mirrors support is
-   not available here. ``fetch_step`` always downloads the full file
-   and crops locally. For variable/level subset on an old date, you
-   still get the spatial crop; if that's not enough, filter the
-   resulting file with ``sharktopus.grib.filter_vars_levels``
-   afterwards.
+   RDA does **not** publish ``.idx`` sidecars next to its GRIB2
+   files, but its files are **byte-identical** to NCEP's canonical
+   0p25 files on AWS / GCloud / Azure — same records in the same
+   byte positions. So when ``variables`` and ``levels`` are passed,
+   we try to borrow the idx from those mirrors (post-2021 dates,
+   where all four exist side-by-side) and byte-range against RDA
+   directly. For pre-2021 dates (the RDA-only window), no sibling
+   idx exists and we transparently fall back to full download +
+   ``wgrib2 -match`` locally — the caller still receives exactly
+   the requested subset.
 
 Example
 -------
@@ -36,9 +39,10 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Sequence
 
 from .. import grib, paths
-from ._common import download_and_crop
+from ._common import download_and_crop, download_byte_ranges_and_crop
 from .base import (
     SourceUnavailable,
     canonical_filename,
@@ -118,6 +122,9 @@ def fetch_step(
     pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
     pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
     product: str = "pgrb2.0p25",  # accepted for signature parity; ignored
+    variables: Sequence[str] | None = None,
+    levels: Sequence[str] | None = None,
+    max_workers: int = DEFAULT_MAX_WORKERS,
     timeout: float = 60.0,
     max_retries: int = 3,
     retry_wait: float = 10.0,
@@ -134,6 +141,13 @@ def fetch_step(
     (``gfs.t{HH}z.pgrb2.0p25.f{FFF}``), not the RDA validity-time
     name, so downstream tools can find it the same way regardless of
     which source supplied it.
+
+    When *variables* and *levels* are provided, this routes through
+    byte-range mode using an idx borrowed from AWS / GCloud / Azure
+    (the files are byte-identical). If none of them serves the date
+    either — the ``2015-01-15 → 2021-02-26`` window that RDA alone
+    covers — the call transparently falls back to a full download
+    followed by ``wgrib2 -match`` to produce the same subset locally.
     """
     del product  # silence linters; kept for API compatibility
     dt = validate_date(date)
@@ -150,6 +164,25 @@ def fetch_step(
         dest_dir = Path(dest)
         dest_dir.mkdir(parents=True, exist_ok=True)
     final = dest_dir / canonical_filename(cycle, fxx)
+
+    if variables and levels:
+        from . import aws, azure, gcloud
+        siblings = [
+            aws.build_url(date, cycle, fxx),
+            gcloud.build_url(date, cycle, fxx),
+            azure.build_url(date, cycle, fxx),
+        ]
+        return download_byte_ranges_and_crop(
+            url, final,
+            variables=variables, levels=levels,
+            bbox=bbox, pad_lon=pad_lon, pad_lat=pad_lat,
+            max_workers=max_workers,
+            timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
+            verify=verify, wgrib2=wgrib2,
+            headers=_auth_headers(),
+            sibling_urls=siblings,
+            allow_full_file_fallback=True,
+        )
 
     return download_and_crop(
         url, final,

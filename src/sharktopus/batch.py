@@ -230,9 +230,10 @@ def generate_timestamps(start: str, end: str, step: int = 6) -> list[str]:
 # Full-file mirrors that also support byte-range mode when the caller
 # passes variables + levels. nomads_filter is separate because it needs
 # server-side subsetting (variables/levels mandatory, no fallback). rda
-# uses a validity-time filename with a non-standard sibling index, so it
-# stays full-file-only for now.
-_BYTE_RANGE_CAPABLE = frozenset({"aws", "azure", "gcloud", "nomads"})
+# does not publish .idx sidecars, but borrows them from its sibling
+# mirrors (aws/gcloud/azure) when available and transparently falls back
+# to full-file + local filter on pre-2021 dates where no sibling has it.
+_BYTE_RANGE_CAPABLE = frozenset({"aws", "azure", "gcloud", "nomads", "rda"})
 
 
 def _one_step(

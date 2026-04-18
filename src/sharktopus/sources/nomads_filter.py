@@ -144,7 +144,7 @@ def fetch_step(
     max_retries: int = 3,
     retry_wait: float = 10.0,
     verify: bool = True,
-    wgrib2: str = "wgrib2",
+    wgrib2: str | None = None,
 ) -> Path:
     """Download one forecast step already subset on the server.
 

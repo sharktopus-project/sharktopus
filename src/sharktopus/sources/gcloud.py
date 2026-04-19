@@ -89,6 +89,7 @@ def fetch_step(
     retry_wait: float = 10.0,
     verify: bool = True,
     wgrib2: str | None = None,
+    deadline: float | None = None,
 ) -> Path:
     """Download one GFS forecast step from the Google Cloud mirror.
 
@@ -115,12 +116,12 @@ def fetch_step(
             bbox=bbox, pad_lon=pad_lon, pad_lat=pad_lat,
             max_workers=max_workers,
             timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
-            verify=verify, wgrib2=wgrib2,
+            verify=verify, wgrib2=wgrib2, deadline=deadline,
         )
 
     return download_and_crop(
         url, final,
         bbox=bbox, pad_lon=pad_lon, pad_lat=pad_lat,
         timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
-        verify=verify, wgrib2=wgrib2,
+        verify=verify, wgrib2=wgrib2, deadline=deadline,
     )

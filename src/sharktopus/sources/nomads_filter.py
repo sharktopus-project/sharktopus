@@ -163,6 +163,7 @@ def fetch_step(
     retry_wait: float = 10.0,
     verify: bool = True,
     wgrib2: str | None = None,
+    deadline: float | None = None,
 ) -> Path:
     """Download one forecast step already subset on the server.
 
@@ -199,6 +200,7 @@ def fetch_step(
     stream_download(
         url, final,
         timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
+        deadline=deadline,
     )
 
     if verify and grib.have_wgrib2(wgrib2):

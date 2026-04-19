@@ -130,6 +130,7 @@ def fetch_step(
     retry_wait: float = 10.0,
     verify: bool = True,
     wgrib2: str | None = None,
+    deadline: float | None = None,
 ) -> Path:
     """Download one GFS forecast step from NCAR RDA ds084.1.
 
@@ -182,6 +183,7 @@ def fetch_step(
             headers=_auth_headers(),
             sibling_urls=siblings,
             allow_full_file_fallback=True,
+            deadline=deadline,
         )
 
     return download_and_crop(
@@ -190,4 +192,5 @@ def fetch_step(
         timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
         verify=verify, wgrib2=wgrib2,
         headers=_auth_headers(),
+        deadline=deadline,
     )

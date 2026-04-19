@@ -68,6 +68,28 @@ def canonical_filename(cycle: str, fxx: int, product: str = "pgrb2.0p25") -> str
     return f"gfs.t{cycle}z.{product}.f{fxx:03d}"
 
 
+def _deadline_check(deadline: float | None, url: str) -> None:
+    """Raise :class:`SourceUnavailable` if *deadline* has passed.
+
+    *deadline* is a :func:`time.monotonic` instant. ``None`` = no deadline.
+    """
+    if deadline is not None and time.monotonic() > deadline:
+        raise SourceUnavailable(f"attempt deadline exceeded on {url}")
+
+
+def _effective_timeout(timeout: float, deadline: float | None) -> float:
+    """Bound the socket timeout by the time remaining until *deadline*.
+
+    Keeps a small floor (0.1 s) so we don't hand a negative / zero
+    timeout to urlopen. Caller still wraps the GET in :func:`_deadline_check`,
+    so a near-expired deadline aborts before any socket work begins.
+    """
+    if deadline is None:
+        return timeout
+    remaining = deadline - time.monotonic()
+    return max(0.1, min(timeout, remaining))
+
+
 def stream_download(
     url: str,
     dst: str | Path,
@@ -78,6 +100,7 @@ def stream_download(
     chunk_size: int = 1 << 15,  # 32 KiB
     headers: dict[str, str] | None = None,
     opener: Callable[..., "urllib.request.OpenerDirector"] | None = None,
+    deadline: float | None = None,
 ) -> Path:
     """Download *url* into *dst* with streaming and retry.
 
@@ -86,6 +109,12 @@ def stream_download(
     errors (connection reset, timeout, 5xx) retries up to *max_retries*
     times with *retry_wait* seconds between attempts. Writes to
     ``dst + ".part"`` and renames atomically on success.
+
+    *deadline* is an optional :func:`time.monotonic` instant by which
+    the attempt must complete. Checked before each retry and between
+    every chunk read — lets :class:`~sharktopus._queue.MultiSourceQueue`
+    cut off a slow mirror cooperatively without relying on signals or
+    thread-kill primitives.
     """
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -93,11 +122,13 @@ def stream_download(
 
     last_exc: Exception | None = None
     for attempt in range(1, max_retries + 1):
+        _deadline_check(deadline, url)
         try:
             req = urllib.request.Request(url, headers=headers or {})
             _open = opener or urllib.request.urlopen
-            with _open(req, timeout=timeout) as resp, open(part, "wb") as out:
+            with _open(req, timeout=_effective_timeout(timeout, deadline)) as resp, open(part, "wb") as out:
                 while True:
+                    _deadline_check(deadline, url)
                     chunk = resp.read(chunk_size)
                     if not chunk:
                         break
@@ -134,18 +165,21 @@ def fetch_text(
     retry_wait: float = 5.0,
     headers: dict[str, str] | None = None,
     opener: Callable[..., "urllib.request.OpenerDirector"] | None = None,
+    deadline: float | None = None,
 ) -> str:
     """Fetch *url* and return the response body as text (UTF-8).
 
     Used for ``.idx`` files, which are tiny (< 50 KB). HTTP 404 raises
     :class:`SourceUnavailable`; other transient errors are retried.
+    *deadline* — see :func:`stream_download`.
     """
     last_exc: Exception | None = None
     for attempt in range(1, max_retries + 1):
+        _deadline_check(deadline, url)
         try:
             req = urllib.request.Request(url, headers=headers or {})
             _open = opener or urllib.request.urlopen
-            with _open(req, timeout=timeout) as resp:
+            with _open(req, timeout=_effective_timeout(timeout, deadline)) as resp:
                 return resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             if e.code == 404:
@@ -168,20 +202,22 @@ def head_size(
     retry_wait: float = 5.0,
     headers: dict[str, str] | None = None,
     opener: Callable[..., "urllib.request.OpenerDirector"] | None = None,
+    deadline: float | None = None,
 ) -> int:
     """Return the total byte length of *url* via HTTP HEAD.
 
     Needed to compute the end offset of the last wanted GRIB2 record
     (the .idx only publishes the *start* offset of each). Falls back to
     a ``Range: bytes=0-0`` GET if the server rejects HEAD — some S3-like
-    mirrors do.
+    mirrors do. *deadline* — see :func:`stream_download`.
     """
     last_exc: Exception | None = None
     for attempt in range(1, max_retries + 1):
+        _deadline_check(deadline, url)
         try:
             req = urllib.request.Request(url, headers=headers or {}, method="HEAD")
             _open = opener or urllib.request.urlopen
-            with _open(req, timeout=timeout) as resp:
+            with _open(req, timeout=_effective_timeout(timeout, deadline)) as resp:
                 length = resp.headers.get("Content-Length")
                 if length is not None:
                     return int(length)
@@ -192,12 +228,13 @@ def head_size(
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             last_exc = e
 
+        _deadline_check(deadline, url)
         try:
             req = urllib.request.Request(
                 url, headers={**(headers or {}), "Range": "bytes=0-0"}
             )
             _open = opener or urllib.request.urlopen
-            with _open(req, timeout=timeout) as resp:
+            with _open(req, timeout=_effective_timeout(timeout, deadline)) as resp:
                 cr = resp.headers.get("Content-Range")
                 if cr and "/" in cr:
                     total = cr.rsplit("/", 1)[-1].strip()
@@ -227,6 +264,7 @@ def stream_byte_ranges(
     retry_wait: float = 5.0,
     headers: dict[str, str] | None = None,
     opener: Callable[..., "urllib.request.OpenerDirector"] | None = None,
+    deadline: float | None = None,
 ) -> Path:
     """Download *ranges* of *url* in parallel and concatenate into *dst*.
 
@@ -250,10 +288,11 @@ def stream_byte_ranges(
         _headers = {**(headers or {}), "Range": f"bytes={start}-{end}"}
         last_exc: Exception | None = None
         for attempt in range(1, max_retries + 1):
+            _deadline_check(deadline, url)
             try:
                 req = urllib.request.Request(url, headers=_headers)
                 _open = opener or urllib.request.urlopen
-                with _open(req, timeout=timeout) as resp:
+                with _open(req, timeout=_effective_timeout(timeout, deadline)) as resp:
                     return i, resp.read()
             except urllib.error.HTTPError as e:
                 if e.code == 404:

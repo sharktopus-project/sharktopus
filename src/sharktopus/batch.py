@@ -34,12 +34,16 @@ can override via ``max_workers=...``.
 
 from __future__ import annotations
 
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from . import grib, wrf
+from ._queue import MultiSourceQueue, Step
 from .sources import SourceUnavailable, aws, azure, gcloud, nomads, nomads_filter, rda
 
 __all__ = [
@@ -280,6 +284,8 @@ def fetch_batch(
     pad_lon: float = grib.DEFAULT_WRF_PAD_LON,
     pad_lat: float = grib.DEFAULT_WRF_PAD_LAT,
     max_workers: int | None = None,
+    spread: bool | None = None,
+    attempt_timeout: float | None = None,
     now: datetime | None = None,
     on_step_ok: Callable[[str, str, int, Path], None] | None = None,
     on_step_fail: Callable[[str, str, int, list[tuple[str, Exception]]], None] | None = None,
@@ -302,10 +308,37 @@ def fetch_batch(
     priority list they're required. Other sources consume the bbox plus
     whatever they support.
 
-    *max_workers* controls step-level parallelism. When omitted, uses
-    :func:`default_max_workers` for the priority list — the minimum
-    throttle ceiling across the listed sources. Set to 1 for fully
-    serial downloads (useful when debugging or on very slow disks).
+    *spread* selects between two concurrency models:
+
+    * ``False`` (or when exactly one source is eligible) — classic
+      fallback chain. Steps go through the priority list in order
+      until one succeeds; step-level parallelism is sized by
+      :func:`default_max_workers` (the minimum throttle ceiling across
+      the list).
+    * ``True`` — spread mode backed by
+      :class:`~sharktopus._queue.MultiSourceQueue`. Every eligible
+      source runs its own worker pool at the source's own
+      ``DEFAULT_MAX_WORKERS``, pulling from a single globally ordered
+      queue (oldest ``(date, cycle, fxx)`` first). A step that fails in
+      source A is re-enqueued with A blacklisted; another source's pool
+      picks it up at its own pace. Total concurrency rises to
+      ``sum(workers per source)`` without any source exceeding its
+      published ceiling.
+    * ``None`` (default) — spread when *priority* was auto-resolved
+      (i.e. caller didn't pass ``priority=``) and has more than one
+      source; classic fallback chain otherwise. An explicit
+      ``priority=[...]`` is read as a deliberate preference ordering
+      and preserves first-wins semantics unless ``spread=True`` is
+      also passed.
+
+    *max_workers* (fallback-chain mode only) overrides the pool size.
+    In spread mode concurrency is derived per-source and cannot be
+    collapsed to a single number, so this is ignored.
+
+    *attempt_timeout* (spread mode): wall-clock seconds allowed per
+    attempt on a given source. When exceeded, the download is aborted
+    cooperatively and the step re-enqueued with that source blacklisted
+    so a less loaded mirror can try. ``None`` = no deadline.
 
     *now* lets tests freeze the clock used by availability filtering.
     Leave it ``None`` in production.
@@ -322,6 +355,7 @@ def fetch_batch(
     if interval <= 0:
         raise ValueError(f"interval must be > 0, got {interval}")
 
+    priority_was_auto = priority is None
     if priority is None:
         first_date = str(timestamps[0])[:8]
         first_cycle = str(timestamps[0])[8:10] if len(str(timestamps[0])) >= 10 else None
@@ -373,10 +407,39 @@ def fetch_batch(
         for fxx in fxx_range:
             jobs.append((date, cycle, fxx))
 
-    n_workers = max_workers if max_workers is not None else default_max_workers(priority)
-    n_workers = max(1, min(n_workers, len(jobs)))
+    # Decide concurrency model. Spread requires >1 eligible source and
+    # nomads_filter is excluded (needs mandatory variables/levels in a
+    # way the generic worker loop doesn't carry yet — keep it simple
+    # and route it through the fallback chain). When the caller passed
+    # priority= explicitly we read that as a deliberate preference
+    # ordering (first source should win), so default to classic fallback
+    # chain; auto-resolved priorities default to spread.
+    spread_eligible = (
+        len(priority) > 1 and "nomads_filter" not in priority
+    )
+    if spread is None:
+        use_spread = spread_eligible and priority_was_auto
+    else:
+        use_spread = bool(spread) and spread_eligible
 
     outputs: list[Path] = []
+
+    if use_spread:
+        _run_spread(
+            jobs=jobs,
+            priority=priority,
+            common=common,
+            var_list=var_list,
+            lev_list=lev_list,
+            outputs=outputs,
+            attempt_timeout=attempt_timeout,
+            on_step_ok=on_step_ok,
+            on_step_fail=on_step_fail,
+        )
+        return outputs
+
+    n_workers = max_workers if max_workers is not None else default_max_workers(priority)
+    n_workers = max(1, min(n_workers, len(jobs)))
 
     if n_workers == 1:
         # Serial path — preserves strict ordering, useful for tests and
@@ -408,3 +471,95 @@ def fetch_batch(
                 on_step_fail(date, cycle, fxx, errors)
 
     return outputs
+
+
+# ---------------------------------------------------------------------------
+# Spread mode — :class:`MultiSourceQueue` backed by a thread pool per source
+# ---------------------------------------------------------------------------
+
+def _run_spread(
+    *,
+    jobs: list[tuple[str, str, int]],
+    priority: Sequence[str],
+    common: dict[str, Any],
+    var_list: list[str] | None,
+    lev_list: list[str] | None,
+    outputs: list[Path],
+    attempt_timeout: float | None,
+    on_step_ok: Callable[[str, str, int, Path], None] | None,
+    on_step_fail: Callable[[str, str, int, list[tuple[str, Exception]]], None] | None,
+) -> None:
+    """Fill *outputs* by draining *jobs* through a :class:`MultiSourceQueue`.
+
+    One worker thread per ``(source, worker-slot)`` pair: each pops the
+    next step its source is eligible for, calls ``fetch_step`` with an
+    optional cooperative *attempt_timeout* deadline, and on failure
+    re-enqueues with the source blacklisted. Per-step errors accumulate
+    across re-enqueues so *on_step_fail* gets the full cross-source
+    trail on final failure.
+    """
+    queue = MultiSourceQueue(priority)
+    for date, cycle, fxx in jobs:
+        queue.push(Step(key=(date, cycle, fxx)))
+
+    errors_by_key: dict[tuple, list[tuple[str, Exception]]] = {}
+    succeeded: set[tuple] = set()
+    state_lock = threading.Lock()
+
+    def _kwargs_for(source: str) -> dict[str, Any]:
+        kw = dict(common)
+        if source == "nomads_filter":
+            kw["variables"] = list(var_list or [])
+            kw["levels"] = list(lev_list or [])
+        elif source in _BYTE_RANGE_CAPABLE and var_list and lev_list:
+            kw["variables"] = list(var_list)
+            kw["levels"] = list(lev_list)
+        return kw
+
+    def worker(source: str) -> None:
+        fetch = _REGISTRY[source]
+        kwargs = _kwargs_for(source)
+        while True:
+            step = queue.pop(source)
+            if step is None:
+                return
+            date, cycle, fxx = step.key
+            deadline = (
+                time.monotonic() + attempt_timeout
+                if attempt_timeout is not None else None
+            )
+            try:
+                path = fetch(date, cycle, fxx, deadline=deadline, **kwargs)
+            except SourceUnavailable as e:
+                with state_lock:
+                    errors_by_key.setdefault(step.key, []).append((source, e))
+                queue.push(replace(
+                    step, blacklist=step.blacklist | {source},
+                ))
+                continue
+            with state_lock:
+                outputs.append(path)
+                succeeded.add(step.key)
+            if on_step_ok is not None:
+                on_step_ok(date, cycle, fxx, path)
+            queue.mark_done(step)
+
+    threads: list[threading.Thread] = []
+    for source in priority:
+        for slot in range(source_default_workers(source)):
+            t = threading.Thread(
+                target=worker, args=(source,),
+                name=f"sharktopus-{source}-{slot}", daemon=True,
+            )
+            threads.append(t)
+            t.start()
+
+    for t in threads:
+        t.join()
+
+    if on_step_fail is not None:
+        for key, errs in errors_by_key.items():
+            if key in succeeded:
+                continue
+            date, cycle, fxx = key
+            on_step_fail(date, cycle, fxx, errs)

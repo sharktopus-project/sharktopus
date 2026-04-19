@@ -242,6 +242,36 @@ Override per batch when you know better:
 sharktopus.fetch_batch(..., max_workers=8)   # explicit
 ```
 
+**Spread mode.** When the priority list has more than one source,
+`fetch_batch` runs in *spread* mode by default (when you let the
+library pick the priority — an explicit `priority=[...]` preserves
+the classic first-wins fallback chain for back-compat). Every
+eligible source drives its own worker pool at its own
+`DEFAULT_MAX_WORKERS`; they all pull from one globally ordered queue
+(oldest `(date, cycle, fxx)` first) so the earliest timestamps —
+which WRF will consume first — finish first even when a later date
+is still in flight. A failure on source A re-enqueues the step with
+A blacklisted (never bypasses A's rate limit by synchronously
+falling through to B). Aggregate concurrency is
+`sum(workers per source)` — ~10 for the default gcloud/aws/azure
+fan-out — without any source exceeding its own ceiling.
+
+```python
+# Auto-priority + multiple eligible mirrors → spread mode (default).
+sharktopus.fetch_batch(
+    timestamps=sharktopus.generate_timestamps("2024010100", "2024013118", 6),
+    lat_s=-28, lat_n=-18, lon_w=-48, lon_e=-36,
+    ext=24, interval=3,
+)
+
+# Abort any attempt that exceeds 60 s and re-enqueue the step on
+# another mirror (good for flaky WAN).
+sharktopus.fetch_batch(..., spread=True, attempt_timeout=60.0)
+
+# Force classic fallback-chain even with an auto priority.
+sharktopus.fetch_batch(..., spread=False)
+```
+
 ### Layer 1 — NOMADS sources
 
 ```python

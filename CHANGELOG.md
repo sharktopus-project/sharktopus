@@ -4,6 +4,55 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+### Added
+- **Spread mode.** `fetch_batch(..., spread=True)` (default when priority
+  is auto-resolved and has more than one source) distributes a batch
+  across every eligible source concurrently instead of running the
+  classic fallback chain. Each source drives its own worker pool at
+  its own `DEFAULT_MAX_WORKERS` ceiling; all workers pull from a
+  single globally ordered queue (oldest `(date, cycle, fxx)` first),
+  so the earliest timestamps — the ones WRF will consume first —
+  always complete first even when a later date is still in flight.
+  Failure does **not** synchronously fall through to another source
+  (which would bypass that source's rate limit). Instead the worker
+  re-enqueues the step with its own source blacklisted; a worker on
+  a different source picks it up at its own pace. Aggregate
+  concurrency is `sum(workers per source)` — ~10 in the default
+  gcloud/aws/azure fan-out — without any source exceeding its
+  published ceiling.
+- **Cooperative attempt deadlines.** New `attempt_timeout=` kwarg on
+  `fetch_batch` sets a per-attempt wall-clock budget (seconds). When
+  exceeded, the in-flight download is aborted and the step
+  re-enqueued so another source can try. Deadlines are propagated
+  end-to-end (`fetch_batch` → `fetch_step` → `download_and_crop` →
+  `stream_download` / `stream_byte_ranges` / `fetch_text`) via a new
+  `deadline: float | None = None` kwarg on every `fetch_step` and on
+  the low-level helpers in `sources.base`. No SIGALRM / thread-kill
+  primitives — checked between retries and between chunks, fine for
+  HTTP I/O.
+- New internal module `sharktopus._queue` with `Step` and
+  `MultiSourceQueue` — priority queue sharded per source with lazy
+  invalidation and in-flight claim tracking. O(log N) push/pop,
+  thread-safe, wakes only the eligible source on push. 14 tests in
+  `test_queue.py` covering ordering, re-enqueue, blacklist skipping,
+  single-claim races, and stop/wakeup semantics.
+- 10 new tests in `test_batch_spread.py` covering spread-mode
+  distribution, auto-priority triggering, explicit-priority preserving
+  fallback semantics, re-enqueue on failure, rate-limit ceiling
+  preservation, deadline propagation, and global oldest-first
+  ordering.
+
+### Changed
+- `fetch_batch` adds `spread: bool | None = None` and
+  `attempt_timeout: float | None = None`. Default behavior when the
+  caller did not pass `priority=` changes from fallback-chain to
+  spread (multi-source availability → all mirrors in parallel). An
+  explicit `priority=[...]` continues to use the fallback chain
+  unless `spread=True` is also passed.
+- Every source's `fetch_step` grows a `deadline: float | None = None`
+  kwarg, forwarded through the shared `_common` helpers. `None`
+  preserves the previous behavior exactly (no deadline).
+
 ## [0.1.0] — 2026-04-18
 
 First tagged release. Layers 0, 1, 2 and 5 of the roadmap are complete:

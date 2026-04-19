@@ -40,6 +40,7 @@ def download_and_crop(
     verify: bool = True,
     wgrib2: str | None = None,
     headers: dict[str, str] | None = None,
+    deadline: float | None = None,
 ) -> Path:
     """Download *url* into *final* and optionally crop locally.
 
@@ -58,7 +59,7 @@ def download_and_crop(
     stream_download(
         url, final,
         timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
-        headers=headers,
+        headers=headers, deadline=deadline,
     )
 
     if bbox is not None:
@@ -96,6 +97,7 @@ def download_byte_ranges_and_crop(
     idx_suffix: str = ".idx",
     sibling_urls: Sequence[str] = (),
     allow_full_file_fallback: bool = False,
+    deadline: float | None = None,
 ) -> Path:
     """Download only the GRIB2 records matching *variables*/*levels*.
 
@@ -142,7 +144,7 @@ def download_byte_ranges_and_crop(
             idx_text = fetch_text(
                 cand,
                 timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
-                headers=headers,
+                headers=headers, deadline=deadline,
             )
             idx_source = cand
             break
@@ -158,6 +160,7 @@ def download_byte_ranges_and_crop(
                 bbox=bbox, pad_lon=pad_lon, pad_lat=pad_lat,
                 timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
                 verify=verify, wgrib2=wgrib2, headers=headers,
+                deadline=deadline,
             )
         raise SourceUnavailable(
             f"no .idx available for {url} (tried {len(idx_candidates)} "
@@ -180,7 +183,7 @@ def download_byte_ranges_and_crop(
     total = head_size(
         url,
         timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
-        headers=headers,
+        headers=headers, deadline=deadline,
     )
     ranges = grib.byte_ranges(records, wanted, total_size=total)
     if not ranges:
@@ -191,7 +194,7 @@ def download_byte_ranges_and_crop(
         url, ranges, final,
         max_workers=max_workers,
         timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
-        headers=headers,
+        headers=headers, deadline=deadline,
     )
 
     if bbox is not None:
@@ -225,6 +228,7 @@ def _download_full_and_filter(
     verify: bool,
     wgrib2: str | None,
     headers: dict[str, str] | None,
+    deadline: float | None = None,
 ) -> Path:
     """Fallback used when no idx can be fetched from primary or siblings.
 
@@ -235,7 +239,7 @@ def _download_full_and_filter(
     stream_download(
         url, final,
         timeout=timeout, max_retries=max_retries, retry_wait=retry_wait,
-        headers=headers,
+        headers=headers, deadline=deadline,
     )
 
     if bbox is not None:

@@ -19,6 +19,7 @@ from sharktopus.grib import (
     have_wgrib2,
     parse_idx,
     rename_by_validity,
+    suggest_omp_threads,
     verify,
 )
 
@@ -226,6 +227,152 @@ def test_expand_bbox_rejects_negative_pad():
         expand_bbox((-45, -40, -25, -20), pad_lon=-1, pad_lat=0)
     with pytest.raises(ValueError):
         expand_bbox((-45, -40, -25, -20), pad_lon=0, pad_lat=-1)
+
+
+# ---------------------------------------------------------------------------
+# suggest_omp_threads
+# ---------------------------------------------------------------------------
+
+def test_suggest_omp_threads_splits_cores_fairly():
+    # 128 cores, 12 concurrent crops, leave 2 free → (126/12)=10, capped at 8
+    assert suggest_omp_threads(12, cpu_count=128) == 8
+    # 128 cores, 12 concurrent, no cap → 10 threads per crop
+    assert suggest_omp_threads(12, cpu_count=128, max_per_crop=32) == 10
+
+
+def test_suggest_omp_threads_small_hosts_return_one():
+    # Laptop: 8 cores, 12 concurrent crops → 0/12 → clamped to 1
+    assert suggest_omp_threads(12, cpu_count=8) == 1
+    # Tiny host: 4 cores, 4 concurrent → (2/4)=0 → 1
+    assert suggest_omp_threads(4, cpu_count=4) == 1
+
+
+def test_suggest_omp_threads_zero_concurrent_returns_one():
+    assert suggest_omp_threads(0, cpu_count=64) == 1
+
+
+def test_suggest_omp_threads_uses_os_cpu_count_when_none():
+    # Just sanity-check it returns a positive int when cpu_count is auto.
+    n = suggest_omp_threads(4)
+    assert n >= 1
+
+
+# ---------------------------------------------------------------------------
+# OMP env wiring in crop / filter_vars_levels
+# ---------------------------------------------------------------------------
+
+def _fake_subprocess_run_capture_env(captured: dict):
+    def _run(cmd, *, check, stdout, stderr, text, env=None):
+        captured["cmd"] = cmd
+        captured["env"] = env
+        # fake "success" — write an empty output file so callers don't trip
+        # on missing dst; crop/filter don't read their own output.
+        out = cmd[-1]
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_bytes(b"")
+
+        class _Ret:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Ret()
+
+    return _run
+
+
+def test_crop_passes_omp_num_threads_when_given(tmp_path, monkeypatch):
+    src = tmp_path / "x.grib2"
+    src.write_bytes(b"")
+    dst = tmp_path / "y.grib2"
+    captured: dict = {}
+    monkeypatch.setattr(
+        "sharktopus.grib.subprocess.run",
+        _fake_subprocess_run_capture_env(captured),
+    )
+    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    crop(src, dst, bbox=(-45, -40, -25, -20), omp_threads=8)
+    assert captured["env"] is not None
+    assert captured["env"]["OMP_NUM_THREADS"] == "8"
+
+
+def test_crop_reads_shark_topus_omp_threads_env(tmp_path, monkeypatch):
+    src = tmp_path / "x.grib2"
+    src.write_bytes(b"")
+    dst = tmp_path / "y.grib2"
+    captured: dict = {}
+    monkeypatch.setenv("SHARKTOPUS_OMP_THREADS", "4")
+    monkeypatch.setattr(
+        "sharktopus.grib.subprocess.run",
+        _fake_subprocess_run_capture_env(captured),
+    )
+    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    crop(src, dst, bbox=(-45, -40, -25, -20))
+    assert captured["env"]["OMP_NUM_THREADS"] == "4"
+
+
+def test_crop_no_env_when_omp_not_set(tmp_path, monkeypatch):
+    src = tmp_path / "x.grib2"
+    src.write_bytes(b"")
+    dst = tmp_path / "y.grib2"
+    captured: dict = {}
+    monkeypatch.delenv("SHARKTOPUS_OMP_THREADS", raising=False)
+    monkeypatch.setattr(
+        "sharktopus.grib.subprocess.run",
+        _fake_subprocess_run_capture_env(captured),
+    )
+    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    crop(src, dst, bbox=(-45, -40, -25, -20))
+    assert captured["env"] is None  # inherit parent env
+
+
+def test_crop_explicit_beats_env(tmp_path, monkeypatch):
+    src = tmp_path / "x.grib2"
+    src.write_bytes(b"")
+    dst = tmp_path / "y.grib2"
+    captured: dict = {}
+    monkeypatch.setenv("SHARKTOPUS_OMP_THREADS", "2")
+    monkeypatch.setattr(
+        "sharktopus.grib.subprocess.run",
+        _fake_subprocess_run_capture_env(captured),
+    )
+    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    crop(src, dst, bbox=(-45, -40, -25, -20), omp_threads=16)
+    assert captured["env"]["OMP_NUM_THREADS"] == "16"
+
+
+def test_crop_rejects_zero_omp_threads(tmp_path):
+    src = tmp_path / "x.grib2"
+    src.write_bytes(b"")
+    dst = tmp_path / "y.grib2"
+    with pytest.raises(ValueError):
+        crop(src, dst, bbox=(-45, -40, -25, -20), omp_threads=0)
+
+
+def test_crop_rejects_garbage_env(tmp_path, monkeypatch):
+    src = tmp_path / "x.grib2"
+    src.write_bytes(b"")
+    dst = tmp_path / "y.grib2"
+    monkeypatch.setenv("SHARKTOPUS_OMP_THREADS", "eight")
+    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    with pytest.raises(ValueError):
+        crop(src, dst, bbox=(-45, -40, -25, -20))
+
+
+def test_filter_vars_levels_passes_omp_env(tmp_path, monkeypatch):
+    src = tmp_path / "x.grib2"
+    src.write_bytes(b"")
+    dst = tmp_path / "y.grib2"
+    captured: dict = {}
+    monkeypatch.setattr(
+        "sharktopus.grib.subprocess.run",
+        _fake_subprocess_run_capture_env(captured),
+    )
+    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    filter_vars_levels(
+        src, dst, variables=["TMP"], levels=["500 mb"], omp_threads=6,
+    )
+    assert captured["env"]["OMP_NUM_THREADS"] == "6"
 
 
 def test_default_pad_is_positive():

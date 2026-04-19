@@ -15,10 +15,15 @@ optionally crop locally with wgrib2:
 - :mod:`sharktopus.sources.azure` — Azure Blob ``noaagfs/gfs``.
 - :mod:`sharktopus.sources.rda` — NCAR RDA ``ds084.1`` (long-term archive).
 
-One source takes a different approach — server-side subsetting:
+Two sources take a different approach — server-side subsetting:
 
 - :mod:`sharktopus.sources.nomads_filter` — NOMADS ``filter_gfs_0p25.pl``
   asks the server to return only the requested variables/levels/window.
+- :mod:`sharktopus.sources.aws_crop` — invokes the ``sharktopus`` AWS
+  Lambda, which byte-range-fetches and crops server-side, then returns
+  the cropped GRIB2 inline or via a presigned S3 URL. Quota-gated by
+  :mod:`sharktopus.aws_quota` so free-tier exhaustion falls back to
+  :mod:`sharktopus.sources.aws` instead of silently billing.
 """
 
 from .base import SourceUnavailable, canonical_filename

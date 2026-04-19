@@ -5,6 +5,60 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **AWS cloud-side cropping** via the `sharktopus` Lambda
+  (`sharktopus.sources.aws_crop`). Invokes a container-image Lambda
+  that does the byte-range fetch + wgrib2 crop server-side and returns
+  only the cropped bytes — typically 50-500 KB instead of 500 MB per
+  step. Two delivery modes, chosen automatically by the Lambda based
+  on output size:
+  - `inline` — base64-encoded GRIB2 in the invocation response
+    (synchronous Lambda caps at ~4.5 MB binary), no S3 round-trip.
+  - `s3` — Lambda uploads to a short-lived prefix and returns a
+    presigned GET URL. Client downloads and immediately deletes the
+    object (retained only when `SHARKTOPUS_RETAIN_S3=true`).
+- **Free-tier quota tracking** (`sharktopus.aws_quota`) — thread-safe
+  local counter at `~/.cache/sharktopus/quota.json` tracking
+  invocations, GB-seconds, and estimated spend per provider per UTC
+  month (auto-rolls on the 1st). AWS Lambda Always-Free allowance is
+  hardcoded (1M requests + 400k GB-seconds/month). Policy gates via
+  env vars:
+  - `SHARKTOPUS_LOCAL_CROP=true` — force local crop, skip cloud
+    entirely.
+  - `SHARKTOPUS_ACCEPT_CHARGES=true` + `SHARKTOPUS_MAX_SPEND_USD=N` —
+    authorise paid usage up to $N/month once the free tier runs out.
+  - Default (both unset): free-tier-only. `can_use_cloud_crop()`
+    returns `(False, reason)` once the month's allowance is spent, and
+    `aws_crop.fetch_step` raises `SourceUnavailable` so the orchestrator
+    falls back to the plain `aws` source (byte-range + local crop, no
+    Lambda cost).
+- **Cloud-crop-first default priority.** `DEFAULT_PRIORITY` changes
+  from `("gcloud", "aws", "azure", "rda", "nomads")` to
+  `("aws_crop", "gcloud", "aws", "azure", "rda", "nomads")`.
+  `aws_crop.supports(date)` returns `True` only when both the date
+  window is covered **and** boto3 can resolve AWS credentials, so
+  machines without AWS configured silently drop `aws_crop` from
+  auto-priority at `available_sources` time — no failed invocation per
+  batch, no behaviour change for existing users.
+- 21 new tests in `test_sources_aws_crop.py` covering payload shape,
+  inline/s3 response handling, quota gates, S3 retain-vs-delete,
+  invocation error propagation, billed-duration log parsing, and
+  credential detection.
+- 13 new tests in `test_aws_quota.py` covering fresh-state defaults,
+  persistence, per-provider keying, month rollover, policy gates
+  (`LOCAL_CROP` / `ACCEPT_CHARGES` / `MAX_SPEND_USD`), and concurrent
+  `record_invocation` calls (4 threads × 20 calls → 80 serialised).
+- 3 new tests in `test_availability.py` asserting `aws_crop`'s
+  placement in `DEFAULT_PRIORITY`, its credential-gated inclusion in
+  auto-priority, and its silent exclusion when credentials are absent.
+- **Community governance scaffolding.** `CITATION.cff` (IEAPM
+  affiliation), `AUTHORS.md`, `GOVERNANCE.md`, `CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1), `.github/CODEOWNERS`,
+  PR template, bug/feature issue templates, and a `.github/workflows/ci.yml`
+  matrix (pytest on Python 3.10/3.11/3.12). Prepares the repo for public
+  release on a project-owned GitHub org while crediting IEAPM as the
+  institutional origin.
+
+### Added
 - **Spread mode.** `fetch_batch(..., spread=True)` (default when priority
   is auto-resolved and has more than one source) distributes a batch
   across every eligible source concurrently instead of running the
@@ -41,6 +95,26 @@ All notable changes to this project will be documented here.
   fallback semantics, re-enqueue on failure, rate-limit ceiling
   preservation, deadline propagation, and global oldest-first
   ordering.
+- **Opt-in wgrib2 OpenMP parallelism.** `grib.crop()` and
+  `grib.filter_vars_levels()` now accept `omp_threads=N`, and read
+  `SHARKTOPUS_OMP_THREADS` from the environment as a process-wide
+  default. When set, wgrib2 is spawned with `OMP_NUM_THREADS=N` so
+  its compiled-in OpenMP kicks in for `-small_grib` / `-match`
+  (wgrib2 is built with `-fopenmp`). Zero impact on a single file;
+  meaningful (accumulated ~10% savings) across long reanalysis
+  batches. Default is still single-threaded — opt in explicitly.
+- New helper `grib.suggest_omp_threads(concurrent_crops, cpu_count=None)`
+  returns a safe per-process thread count given the expected
+  concurrency. Formula: split idle cores across expected concurrent
+  crops, cap at 8 (wgrib2 speedup flattens past ~8), leave 2 free
+  for Python/I/O.
+- **Headroom warning.** On the first `fetch_batch(spread=True)`
+  call in a process, sharktopus emits a one-shot `UserWarning`
+  when the host has ≥8 cores idle during crops and
+  `SHARKTOPUS_OMP_THREADS` / `OMP_NUM_THREADS` are unset. The
+  warning suggests a concrete value derived from
+  `suggest_omp_threads`. Setting either env var (or `omp_threads=1`)
+  silences it.
 
 ### Changed
 - `fetch_batch` adds `spread: bool | None = None` and

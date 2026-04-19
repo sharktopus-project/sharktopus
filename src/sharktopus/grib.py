@@ -42,6 +42,69 @@ DEFAULT_WRF_PAD_LON = 2.0
 DEFAULT_WRF_PAD_LAT = 2.0
 
 
+def suggest_omp_threads(
+    concurrent_crops: int,
+    cpu_count: int | None = None,
+    *,
+    leave_free: int = 2,
+    max_per_crop: int = 8,
+) -> int:
+    """Suggest a safe ``OMP_NUM_THREADS`` for wgrib2 given concurrency.
+
+    Returns ``max(1, min(max_per_crop, (cpu_count - leave_free) //
+    concurrent_crops))`` — i.e. split the cores fairly across the
+    expected number of concurrent wgrib2 invocations, leaving a small
+    headroom for Python / I/O threads, and capping each crop at
+    *max_per_crop* (wgrib2's OpenMP speedup flattens quickly past ~8
+    threads on a single ~50 MB file).
+
+    *concurrent_crops* should be the peak number of wgrib2 processes
+    expected to run at the same time — in spread mode that's
+    ``sum(DEFAULT_MAX_WORKERS over eligible sources)``; in
+    fallback-chain it's just the batch pool size.
+    """
+    if concurrent_crops <= 0:
+        return 1
+    if cpu_count is None:
+        cpu_count = os.cpu_count() or 1
+    per_crop = (max(1, cpu_count) - max(0, leave_free)) // concurrent_crops
+    return max(1, min(max_per_crop, per_crop))
+
+
+def _resolve_omp_threads(explicit: int | None) -> int | None:
+    """Return the OMP_NUM_THREADS wgrib2 should run with, or ``None``.
+
+    Priority: explicit *explicit* arg > ``SHARKTOPUS_OMP_THREADS`` env
+    var > return ``None`` (don't set ``OMP_NUM_THREADS`` — inherit from
+    caller's environment, which is wgrib2's native default).
+    """
+    if explicit is not None:
+        if explicit < 1:
+            raise ValueError(f"omp_threads must be >= 1, got {explicit}")
+        return int(explicit)
+    raw = os.environ.get("SHARKTOPUS_OMP_THREADS")
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        n = int(raw)
+    except ValueError as e:
+        raise ValueError(
+            f"SHARKTOPUS_OMP_THREADS must be an integer, got {raw!r}"
+        ) from e
+    if n < 1:
+        raise ValueError(f"SHARKTOPUS_OMP_THREADS must be >= 1, got {n}")
+    return n
+
+
+def _env_with_omp(omp_threads: int | None) -> dict[str, str] | None:
+    """Return an env dict with ``OMP_NUM_THREADS`` set, or ``None`` for inherit."""
+    if omp_threads is None:
+        return None
+    env = dict(os.environ)
+    env["OMP_NUM_THREADS"] = str(omp_threads)
+    return env
+
+
 def expand_bbox(bbox: Bbox, pad_lon: float, pad_lat: float) -> Bbox:
     """Return *bbox* grown by *pad_lon* deg on each lon side and *pad_lat* on each lat side.
 
@@ -107,18 +170,26 @@ def crop(
     dst: str | os.PathLike,
     bbox: Bbox,
     wgrib2: str | None = None,
+    omp_threads: int | None = None,
 ) -> Path:
     """Geographic subset of *src* into *dst*.
 
     *bbox* is ``(lon_w, lon_e, lat_s, lat_n)`` in degrees. Wraps
     ``wgrib2 -small_grib``. Creates ``dst``'s parent directory if missing.
     Returns the destination :class:`Path`.
+
+    *omp_threads* sets ``OMP_NUM_THREADS`` for this wgrib2 invocation.
+    ``None`` reads ``SHARKTOPUS_OMP_THREADS`` from the environment; if
+    that's also unset, wgrib2 runs single-threaded (its default). Use
+    :func:`suggest_omp_threads` to pick a safe value given your
+    concurrency.
     """
     lon_w, lon_e, lat_s, lat_n = bbox
     _validate_bbox(lon_w, lon_e, lat_s, lat_n)
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     exe = _resolve_or_grib_error(wgrib2)
+    env = _env_with_omp(_resolve_omp_threads(omp_threads))
     try:
         subprocess.run(
             [
@@ -130,6 +201,7 @@ def crop(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
     except subprocess.CalledProcessError as e:
         raise GribError(f"{exe} -small_grib failed: {e.stderr.strip()}") from e
@@ -146,12 +218,16 @@ def filter_vars_levels(
     variables: Iterable[str],
     levels: Iterable[str],
     wgrib2: str | None = None,
+    omp_threads: int | None = None,
 ) -> Path:
     """Filter *src* to records matching *variables* AND *levels*.
 
     Each element of *variables* / *levels* is taken as a wgrib2 regex
     alternative. ``wgrib2 -match`` is applied twice: once for the variable
     pattern, once for the level pattern.
+
+    *omp_threads*: see :func:`crop`. Read from
+    ``SHARKTOPUS_OMP_THREADS`` when not passed.
     """
     var_list = list(variables)
     lev_list = list(levels)
@@ -162,6 +238,7 @@ def filter_vars_levels(
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     exe = _resolve_or_grib_error(wgrib2)
+    env = _env_with_omp(_resolve_omp_threads(omp_threads))
     try:
         subprocess.run(
             [
@@ -174,6 +251,7 @@ def filter_vars_levels(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
     except subprocess.CalledProcessError as e:
         raise GribError(f"{exe} -match failed: {e.stderr.strip()}") from e
@@ -399,5 +477,6 @@ __all__ = [
     "parse_idx",
     "rename_by_validity",
     "resolve_wgrib2",
+    "suggest_omp_threads",
     "verify",
 ]

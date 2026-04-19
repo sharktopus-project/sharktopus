@@ -34,8 +34,10 @@ can override via ``max_workers=...``.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -44,7 +46,16 @@ from typing import Any, Callable, Iterable, Sequence
 
 from . import grib, wrf
 from ._queue import MultiSourceQueue, Step
-from .sources import SourceUnavailable, aws, azure, gcloud, nomads, nomads_filter, rda
+from .sources import (
+    SourceUnavailable,
+    aws,
+    aws_crop,
+    azure,
+    gcloud,
+    nomads,
+    nomads_filter,
+    rda,
+)
 
 __all__ = [
     "DEFAULT_PRIORITY",
@@ -76,6 +87,7 @@ _REGISTRY = SourceRegistry(
     nomads=nomads.fetch_step,
     nomads_filter=nomads_filter.fetch_step,
     aws=aws.fetch_step,
+    aws_crop=aws_crop.fetch_step,
     gcloud=gcloud.fetch_step,
     azure=azure.fetch_step,
     rda=rda.fetch_step,
@@ -86,6 +98,7 @@ _WORKER_DEFAULTS: dict[str, int] = {
     "nomads": nomads.DEFAULT_MAX_WORKERS,
     "nomads_filter": nomads_filter.DEFAULT_MAX_WORKERS,
     "aws": aws.DEFAULT_MAX_WORKERS,
+    "aws_crop": aws_crop.DEFAULT_MAX_WORKERS,
     "gcloud": gcloud.DEFAULT_MAX_WORKERS,
     "azure": azure.DEFAULT_MAX_WORKERS,
     "rda": rda.DEFAULT_MAX_WORKERS,
@@ -96,6 +109,7 @@ _SUPPORTS: dict[str, _SupportsFn] = {
     "nomads": nomads.supports,
     "nomads_filter": nomads_filter.supports,
     "aws": aws.supports,
+    "aws_crop": aws_crop.supports,
     "gcloud": gcloud.supports,
     "azure": azure.supports,
     "rda": rda.supports,
@@ -103,17 +117,27 @@ _SUPPORTS: dict[str, _SupportsFn] = {
 
 
 # Default preference order when the caller doesn't pass ``priority=``.
-# Ordering reflects both availability and cost:
-#   * Cloud mirrors (gcloud/aws/azure) go first — high parallelism, no
-#     rolling-window surprises, and consistently fast.
-#   * rda picks up pre-2021 dates the cloud mirrors don't have.
-#   * nomads last because the origin infrastructure is the most
+# Ordering reflects availability, cost, and wire efficiency:
+#   * Cloud-side crop first (``aws_crop``) — Lambda does the byte-range
+#     + wgrib2 work server-side and returns only the cropped bytes.
+#     Orders of magnitude faster when the bbox is small. ``supports()``
+#     checks AWS credentials, so this entry drops out of auto-priority
+#     on machines without them, and ``aws_quota`` blocks it when paid
+#     usage isn't authorised. ``gcloud_crop`` / ``azure_crop`` will
+#     slot in next to it once phase 2 lands.
+#   * Plain cloud mirrors (``gcloud``/``aws``/``azure``) — full-file or
+#     client-side byte-range. Takes over when cloud-crop is blocked.
+#   * ``rda`` picks up pre-2021 dates the cloud mirrors don't have.
+#   * ``nomads`` last because the origin infrastructure is the most
 #     rate-limited and useful mostly when the cycle is fresh enough
 #     that cloud mirrors haven't staged it yet.
 # ``nomads_filter`` is intentionally NOT here — its value is server-side
 # subsetting, which requires the caller to pass ``variables`` +
 # ``levels``. Include it explicitly in ``priority=`` when you want it.
-DEFAULT_PRIORITY: tuple[str, ...] = ("gcloud", "aws", "azure", "rda", "nomads")
+DEFAULT_PRIORITY: tuple[str, ...] = (
+    "aws_crop",
+    "gcloud", "aws", "azure", "rda", "nomads",
+)
 
 
 def register_source(
@@ -237,7 +261,7 @@ def generate_timestamps(start: str, end: str, step: int = 6) -> list[str]:
 # does not publish .idx sidecars, but borrows them from its sibling
 # mirrors (aws/gcloud/azure) when available and transparently falls back
 # to full-file + local filter on pre-2021 dates where no sibling has it.
-_BYTE_RANGE_CAPABLE = frozenset({"aws", "azure", "gcloud", "nomads", "rda"})
+_BYTE_RANGE_CAPABLE = frozenset({"aws", "aws_crop", "azure", "gcloud", "nomads", "rda"})
 
 
 def _one_step(
@@ -425,6 +449,7 @@ def fetch_batch(
     outputs: list[Path] = []
 
     if use_spread:
+        _maybe_warn_omp_headroom(priority)
         _run_spread(
             jobs=jobs,
             priority=priority,
@@ -471,6 +496,51 @@ def fetch_batch(
                 on_step_fail(date, cycle, fxx, errors)
 
     return outputs
+
+
+# ---------------------------------------------------------------------------
+# OMP headroom warning — fires once per process when spread mode is
+# about to leave cores idle that wgrib2 could use. See
+# :func:`sharktopus.grib.suggest_omp_threads`.
+# ---------------------------------------------------------------------------
+
+_OMP_HEADROOM_WARNED = False
+_OMP_HEADROOM_MIN_FREE_CORES = 8  # only warn when at least 8 cores go unused
+
+
+def _maybe_warn_omp_headroom(priority: Sequence[str]) -> None:
+    """Emit a one-shot warning if wgrib2 could use idle cores.
+
+    Fires only when: spread mode is active, ``SHARKTOPUS_OMP_THREADS`` is
+    unset, ``OMP_NUM_THREADS`` is unset (or 1), and the box has at least
+    ``_OMP_HEADROOM_MIN_FREE_CORES`` unused cores after accounting for
+    the peak concurrent-crop count in spread mode.
+    """
+    global _OMP_HEADROOM_WARNED
+    if _OMP_HEADROOM_WARNED:
+        return
+    if os.environ.get("SHARKTOPUS_OMP_THREADS"):
+        return
+    omp_env = os.environ.get("OMP_NUM_THREADS")
+    if omp_env and omp_env.strip() not in ("", "1"):
+        return
+    cpu = os.cpu_count() or 1
+    concurrent = sum(source_default_workers(s) for s in priority)
+    free = cpu - concurrent
+    if free < _OMP_HEADROOM_MIN_FREE_CORES:
+        return
+    suggested = grib.suggest_omp_threads(concurrent, cpu_count=cpu)
+    if suggested <= 1:
+        return
+    _OMP_HEADROOM_WARNED = True
+    warnings.warn(
+        f"sharktopus: spread mode will run ~{concurrent} concurrent wgrib2 "
+        f"crops on a {cpu}-core host. {free} cores are idle during crops. "
+        f"Set SHARKTOPUS_OMP_THREADS={suggested} to let wgrib2 use them "
+        f"(accumulates across long batches). Silence this by setting "
+        f"SHARKTOPUS_OMP_THREADS or OMP_NUM_THREADS explicitly.",
+        stacklevel=2,
+    )
 
 
 # ---------------------------------------------------------------------------

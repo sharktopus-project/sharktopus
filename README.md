@@ -4,11 +4,15 @@ Download and crop GFS forecast data. Local sources first (NOMADS, AWS Open Data,
 Google Cloud, Azure Blob); serverless cloud recortador is an optional second
 layer for free-tier distributed cropping.
 
-> **Status (2026-04-18): pre-alpha, Layer 1 complete.** All six sources
-> are ported from CONVECT and tested: `nomads`, `nomads_filter`, `aws`,
-> `gcloud`, `azure`, `rda`. All full-file sources share the same
-> download + local-crop recipe; `nomads_filter` does server-side subset.
-> See `docs/ROADMAP.md` for the layered build plan.
+> **Status (2026-04-19): pre-alpha, Layer 3 partial.** Seven sources
+> registered: `aws_crop` (AWS Lambda cloud-side crop, credential- and
+> quota-gated), `nomads`, `nomads_filter`, `aws`, `gcloud`, `azure`,
+> `rda`. Full-file sources share one download + local-crop recipe;
+> `nomads_filter` and `aws_crop` do server-side cropping.
+> `DEFAULT_PRIORITY` now prefers cloud-side crop first when AWS
+> credentials are resolvable; otherwise falls back to the plain cloud
+> mirrors. See `docs/ROADMAP.md` for the layered build plan and
+> `COMMUNICATION.md` for the phase-by-phase cloud-crop rollout.
 
 ## Install
 
@@ -139,10 +143,11 @@ on typos.
 
 ### Sources (Layer 1)
 
-Six sources, all registered at import time:
+Seven sources, all registered at import time:
 
 | Name            | Endpoint                                            | Earliest   | Retention  | Strategies                       |
 |-----------------|-----------------------------------------------------|------------|------------|----------------------------------|
+| `aws_crop`      | `sharktopus` AWS Lambda (user's own account)        | 2021-02-27 | indefinite | **Cloud-side crop** (inline / S3 presigned) — credential-gated |
 | `nomads`        | `nomads.ncep.noaa.gov` (origin)                     | rolling    | ~10 days   | Full download / **idx byte-range** |
 | `nomads_filter` | `nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl`   | rolling    | ~10 days   | Server-side subset               |
 | `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | 2021-02-27 | indefinite | Full download / **idx byte-range** |
@@ -207,11 +212,56 @@ sharktopus --availability 20240101          # which mirrors can serve this date
 ```
 
 Default priority when the caller does not pass `priority=`:
-`gcloud > aws > azure > rda > nomads` — cloud mirrors first for their
-throughput and stable retention, NOMADS last as a rate-limited origin
-fallback. `nomads_filter` is **opt-in** because its value comes from
-server-side variable/level subsetting: include it in `priority=`
-explicitly when you want it.
+`aws_crop > gcloud > aws > azure > rda > nomads` — cloud-side crop
+first when AWS credentials are configured (server-side wgrib2 returns
+only the cropped bytes), plain cloud mirrors next for their throughput
+and stable retention, NOMADS last as a rate-limited origin fallback.
+`aws_crop` is skipped silently from auto-priority when credentials are
+absent or the free-tier quota is exhausted — it never raises a
+fatal error, the next source just takes over. `nomads_filter` is
+**opt-in** because its value comes from server-side variable/level
+subsetting: include it in `priority=` explicitly when you want it.
+
+**Cloud-side crop (`aws_crop`).** When AWS credentials are resolvable
+(env vars, `~/.aws/credentials`, or instance profile) and the local
+free-tier quota still has room, `fetch_batch` invokes the `sharktopus`
+AWS Lambda in the user's own account. The Lambda does the byte-range
+fetch from `noaa-gfs-bdp-pds` and runs `wgrib2 -small_grib` server-side,
+returning only the cropped bytes — typically 50-500 KB instead of
+500 MB per step. Two delivery modes, auto-selected:
+
+- **Inline** — base64-encoded GRIB2 in the Lambda response JSON (fast
+  path, no S3 round-trip; capped at ~4.5 MB binary which covers most
+  real bboxes).
+- **S3 presigned** — Lambda uploads to a short-lived prefix, returns a
+  presigned GET URL, client downloads, then deletes the object. Used
+  automatically for larger crops.
+
+Quota policy via env vars:
+
+```bash
+# Default: stay inside the AWS Always-Free tier (1M req + 400k GB-s / month).
+# When the quota is spent, aws_crop becomes unavailable and the
+# orchestrator falls back to the plain aws source (no Lambda cost).
+
+# Force local crop even when credentials + quota would allow cloud:
+export SHARKTOPUS_LOCAL_CROP=true
+
+# Authorise paid usage up to a monthly ceiling once free tier runs out:
+export SHARKTOPUS_ACCEPT_CHARGES=true
+export SHARKTOPUS_MAX_SPEND_USD=5.00
+
+# Keep intermediate S3 objects (default: deleted after successful download):
+export SHARKTOPUS_RETAIN_S3=true
+```
+
+The counter is kept locally at `~/.cache/sharktopus/quota.json` and
+rolls over on the 1st of every UTC month. Deploying the Lambda in
+your AWS account is a one-shot provisioning step handled by
+`sharktopus deploy aws` (Layer 4 — shipping alongside phase-1b of
+the cloud-crop rollout; until it lands, users can point at an
+existing Lambda of theirs via the `lambda_name=` kwarg on
+`aws_crop.fetch_step`).
 
 **WRF-canonical defaults.** When `nomads_filter` is in the priority
 list and the caller doesn't pass `variables` / `levels`,
@@ -271,6 +321,31 @@ sharktopus.fetch_batch(..., spread=True, attempt_timeout=60.0)
 # Force classic fallback-chain even with an auto priority.
 sharktopus.fetch_batch(..., spread=False)
 ```
+
+**Opt-in wgrib2 OpenMP.** wgrib2 is built with `-fopenmp`, so
+`-small_grib` and `-match` can parallelize across cores. Sharktopus
+leaves this off by default (single-threaded is fine on a single file)
+but lets you turn it on when you're processing many files in a row —
+a year of 6-hourly cycles is ~5k crops, where even ~10% per-file is
+hours. Two ways to enable:
+
+```bash
+# Process-wide: every wgrib2 call sharktopus makes uses 8 OMP threads.
+export SHARKTOPUS_OMP_THREADS=8
+```
+
+```python
+# Per call: explicit override, beats the env var.
+sharktopus.grib.crop(src, dst, bbox=(...), omp_threads=8)
+```
+
+On big hosts running spread mode, sharktopus emits a one-shot
+`UserWarning` on the first `fetch_batch` if it detects significant
+idle-core headroom and neither env var is set, suggesting a concrete
+value. Use `grib.suggest_omp_threads(concurrent_crops)` to pick one
+manually — it splits idle cores across expected concurrent wgrib2
+processes and caps per-crop at 8 (wgrib2's OpenMP speedup flattens
+past that on typical ~50 MB GFS files).
 
 ### Layer 1 — NOMADS sources
 
@@ -354,8 +429,8 @@ next starts.
 | 0. grib utilities | `sharktopus.grib` | ✅ done | no | no |
 | 1. sources (NOMADS/AWS/GCloud/Azure/RDA) | `sharktopus.sources.*` | ✅ done | yes | no |
 | 2. orchestrator `fetch_batch()` | `sharktopus.batch` | ✅ done | yes | no |
-| 3. cloud invoke (extras) | `sharktopus.cloud` | pending | yes | yes |
-| 4. cloud deploy (extras) | `sharktopus.deploy` | pending | yes | yes |
+| 3. cloud invoke (AWS done; GCloud/Azure fase 2) | `sharktopus.sources.aws_crop`, `sharktopus.aws_quota` | 🟡 partial | yes | yes |
+| 4. cloud deploy (AWS in progress) | `sharktopus.deploy` | 🟡 in progress | yes | yes |
 | 5. CLI + interactive menu | `sharktopus.cli` | ✅ done | — | — |
 
 See `docs/ROADMAP.md` for details and validation criteria per layer.

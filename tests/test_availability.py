@@ -85,6 +85,32 @@ def test_available_sources_nomads_filter_not_in_default_priority():
     assert "nomads_filter" not in avail
 
 
+def test_default_priority_lists_aws_crop_first():
+    """Cloud-side crop is the preferred path when reachable."""
+    assert batch.DEFAULT_PRIORITY[0] == "aws_crop"
+    # Plain mirrors still follow — they're the fallback when aws_crop is
+    # blocked by missing credentials or quota policy.
+    assert set(batch.DEFAULT_PRIORITY[1:]) >= {"gcloud", "aws", "azure", "rda", "nomads"}
+
+
+def test_available_sources_includes_aws_crop_when_credentials_present(monkeypatch):
+    """With credentials reachable, aws_crop stays in auto-priority."""
+    monkeypatch.setattr(
+        "sharktopus.sources.aws_crop.have_credentials", lambda: True,
+    )
+    avail = batch.available_sources("20260417", now=NOW)
+    assert avail[0] == "aws_crop"
+
+
+def test_available_sources_drops_aws_crop_without_credentials(monkeypatch):
+    """Default CI state: no AWS creds → aws_crop falls out before invocation."""
+    monkeypatch.setattr(
+        "sharktopus.sources.aws_crop.have_credentials", lambda: False,
+    )
+    avail = batch.available_sources("20260417", now=NOW)
+    assert "aws_crop" not in avail
+
+
 def test_available_sources_respects_explicit_candidates():
     """Passing candidates= overrides DEFAULT_PRIORITY but still filters by supports()."""
     avail = batch.available_sources(

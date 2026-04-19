@@ -324,3 +324,118 @@ def test_spread_global_ordering_oldest_first(isolated_registry, tmp_path):
     first_20240101 = next(i for i, k in enumerate(order) if k[0] == "20240101")
     first_20240103 = next(i for i, k in enumerate(order) if k[0] == "20240103")
     assert first_20240101 < first_20240103
+
+
+# ---------------------------------------------------------------------------
+# OMP headroom warning
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def reset_omp_warning():
+    """Reset the one-shot warning flag so each test sees a clean slate."""
+    orig = batch._OMP_HEADROOM_WARNED
+    batch._OMP_HEADROOM_WARNED = False
+    try:
+        yield
+    finally:
+        batch._OMP_HEADROOM_WARNED = orig
+
+
+def test_omp_warning_fires_when_cores_idle(
+    isolated_registry, tmp_path, monkeypatch, reset_omp_warning
+):
+    """Warn once when spread mode has many idle cores and OMP is unset."""
+    a = _tracking_source("a", tmp_path)
+    b = _tracking_source("b", tmp_path)
+    batch.register_source("a", a, max_workers=2)
+    batch.register_source("b", b, max_workers=2)
+
+    monkeypatch.delenv("SHARKTOPUS_OMP_THREADS", raising=False)
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    monkeypatch.setattr("sharktopus.batch.os.cpu_count", lambda: 128)
+
+    with pytest.warns(UserWarning, match="SHARKTOPUS_OMP_THREADS"):
+        batch.fetch_batch(
+            timestamps=["2024010200", "2024010206"],
+            lat_s=-10, lat_n=0, lon_w=-50, lon_e=-40,
+            ext=0, interval=3,
+            priority=["a", "b"],
+            spread=True,
+        )
+
+
+def test_omp_warning_silenced_when_env_set(
+    isolated_registry, tmp_path, monkeypatch, reset_omp_warning
+):
+    """Do not warn when the user already set SHARKTOPUS_OMP_THREADS."""
+    a = _tracking_source("a", tmp_path)
+    b = _tracking_source("b", tmp_path)
+    batch.register_source("a", a, max_workers=2)
+    batch.register_source("b", b, max_workers=2)
+
+    monkeypatch.setenv("SHARKTOPUS_OMP_THREADS", "8")
+    monkeypatch.setattr("sharktopus.batch.os.cpu_count", lambda: 128)
+
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("error")  # any warning → test failure
+        batch.fetch_batch(
+            timestamps=["2024010200"],
+            lat_s=-10, lat_n=0, lon_w=-50, lon_e=-40,
+            ext=0, interval=3,
+            priority=["a", "b"],
+            spread=True,
+        )
+
+
+def test_omp_warning_not_fired_on_small_hosts(
+    isolated_registry, tmp_path, monkeypatch, reset_omp_warning
+):
+    """Do not warn when there's no meaningful idle headroom."""
+    a = _tracking_source("a", tmp_path)
+    b = _tracking_source("b", tmp_path)
+    batch.register_source("a", a, max_workers=4)
+    batch.register_source("b", b, max_workers=4)
+
+    monkeypatch.delenv("SHARKTOPUS_OMP_THREADS", raising=False)
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    monkeypatch.setattr("sharktopus.batch.os.cpu_count", lambda: 8)
+
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("error")
+        batch.fetch_batch(
+            timestamps=["2024010200"],
+            lat_s=-10, lat_n=0, lon_w=-50, lon_e=-40,
+            ext=0, interval=3,
+            priority=["a", "b"],
+            spread=True,
+        )
+
+
+def test_omp_warning_fires_only_once(
+    isolated_registry, tmp_path, monkeypatch, reset_omp_warning
+):
+    """Second spread batch in the same process must not re-warn."""
+    a = _tracking_source("a", tmp_path)
+    b = _tracking_source("b", tmp_path)
+    batch.register_source("a", a, max_workers=2)
+    batch.register_source("b", b, max_workers=2)
+
+    monkeypatch.delenv("SHARKTOPUS_OMP_THREADS", raising=False)
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    monkeypatch.setattr("sharktopus.batch.os.cpu_count", lambda: 128)
+
+    import warnings as _warnings
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        for _ in range(2):
+            batch.fetch_batch(
+                timestamps=["2024010200"],
+                lat_s=-10, lat_n=0, lon_w=-50, lon_e=-40,
+                ext=0, interval=3,
+                priority=["a", "b"],
+                spread=True,
+            )
+    omp_warnings = [w for w in caught if "SHARKTOPUS_OMP_THREADS" in str(w.message)]
+    assert len(omp_warnings) == 1

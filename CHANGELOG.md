@@ -4,6 +4,17 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-04-18
+
+First tagged release. Layers 0, 1, 2 and 5 of the roadmap are complete:
+GRIB utilities (wgrib2 wrappers + `.idx` parser + byte-range computer),
+six sources (`nomads`, `nomads_filter`, `aws`, `gcloud`, `azure`, `rda`)
+with byte-range mode on all five idx-capable mirrors (`rda` via
+cross-mirror idx borrowing, with a full-file fallback for pre-2021),
+orchestrator `fetch_batch()` with auto-priority from the availability
+API, and CLI with INI-config support. Cloud-side cropping (Layers 3-4)
+is planned for v0.2.
+
 ### Added
 - **Cross-mirror `.idx` borrowing for RDA.** NCAR's ds084.1 does not
   publish `.idx` sidecars, but its GRIB2 files are byte-identical to
@@ -30,16 +41,6 @@ All notable changes to this project will be documented here.
   fallback when all idx 404 and fallback is enabled, raises
   `SourceUnavailable` (citing the count of tried sources) when fallback
   is disabled.
-
-## [0.1.0] — 2026-04-18
-
-First tagged release. Layers 0, 1, 2 and 5 of the roadmap are complete:
-GRIB utilities (wgrib2 wrappers + `.idx` parser + byte-range computer),
-six sources (`nomads`, `nomads_filter`, `aws`, `gcloud`, `azure`, `rda`)
-with byte-range mode on the four NCEP-layout mirrors, orchestrator
-`fetch_batch()` with auto-priority from the availability API, and CLI
-with INI-config support. Cloud-side cropping (Layers 3-4) is planned
-for v0.2.
 
 ### Added
 - **Byte-range download via `.idx`** (ported from CONVECT, feature parity

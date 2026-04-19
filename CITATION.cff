@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use sharktopus in academic work, please cite it as below."
+title: "sharktopus: Download and crop GFS forecast data"
+abstract: >-
+  sharktopus is a Python library for acquiring NOAA GFS forecast data from
+  multiple mirrors (NOMADS, AWS S3, Google Cloud Storage, Azure Blob, NCAR RDA)
+  with optional serverless cloud-side cropping. Originally developed at the
+  Instituto de Estudos do Mar Almirante Paulo Moreira (IEAPM) to support
+  numerical weather prediction workflows, it is distributed as a
+  community-owned open-source project.
+type: software
+authors:
+  - family-names: "Leandro"
+    given-names: "Leandro"
+    email: "leandrometeoro@gmail.com"
+    affiliation: "Instituto de Estudos do Mar Almirante Paulo Moreira (IEAPM), Brazilian Navy"
+license: MIT
+repository-code: "https://github.com/sharktopus-project/sharktopus"
+keywords:
+  - gfs
+  - weather-forecast
+  - numerical-weather-prediction
+  - wrf
+  - grib2
+  - noaa
+  - atmospheric-science

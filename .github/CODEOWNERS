@@ -1,0 +1,10 @@
+# CODEOWNERS — reviewers auto-requested when files in these paths change.
+# Update AUTHORS.md#maintainers in sync with this file.
+# Format: <glob> <@handle> [@handle ...]
+
+# Default: lead maintainer reviews everything until more maintainers join.
+*                                           @leandrometeoro
+
+# Source modules — future sub-area ownership can go here:
+# /src/sharktopus/sources/aws_crop.py        @leandrometeoro
+# /src/sharktopus/sources/gcloud_crop.py     @tbd

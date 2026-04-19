@@ -33,8 +33,10 @@ xarray = ["cfgrib", "xarray"]
 sharktopus = "sharktopus.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/leandrometeoro/sharktopus"
-Source = "https://github.com/leandrometeoro/sharktopus"
+Homepage = "https://github.com/sharktopus-project/sharktopus"
+Source = "https://github.com/sharktopus-project/sharktopus"
+Issues = "https://github.com/sharktopus-project/sharktopus/issues"
+Changelog = "https://github.com/sharktopus-project/sharktopus/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sharktopus"]

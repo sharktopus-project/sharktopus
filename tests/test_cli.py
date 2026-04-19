@@ -118,3 +118,20 @@ def test_cli_variables_levels_forwarded(tmp_path, stub_registry):
     call = stub_registry[0]
     assert call["variables"] == ["TMP", "UGRD"]
     assert call["levels"] == ["500 mb", "850 mb", "surface"]
+
+
+def test_cli_quota_prints_report(tmp_path, monkeypatch, capsys):
+    """`sharktopus --quota` prints the local counter and exits 0."""
+    monkeypatch.setenv("SHARKTOPUS_QUOTA_CACHE", str(tmp_path / "quota.json"))
+    rc = cli.main(["--quota"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "sharktopus cloud quota" in out
+    assert "invocations" in out
+
+
+def test_cli_quota_accepts_explicit_provider(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SHARKTOPUS_QUOTA_CACHE", str(tmp_path / "quota.json"))
+    rc = cli.main(["--quota", "aws"])
+    assert rc == 0
+    assert "aws" in capsys.readouterr().out

@@ -46,7 +46,9 @@ __all__ = [
     "QuotaState",
     "can_use_cloud_crop",
     "estimate_invocation_cost",
+    "format_quota_report",
     "load_quota",
+    "percent_of_free_tier_used",
     "record_invocation",
     "save_quota",
 ]
@@ -283,3 +285,32 @@ def percent_of_free_tier_used(state: QuotaState) -> float:
     inv_pct = 100.0 * state.invocations / AWS_FREE_INVOCATIONS
     gbs_pct = 100.0 * state.gb_seconds / AWS_FREE_GB_SECONDS
     return max(inv_pct, gbs_pct)
+
+
+def format_quota_report(
+    provider: str = "aws",
+    *,
+    state: QuotaState | None = None,
+    path: Path | None = None,
+) -> str:
+    """Return a multi-line human-readable quota report for *provider*.
+
+    Used by ``sharktopus --quota`` and safe to call from notebooks /
+    scripts. Reads the local counter only — no CloudWatch round-trip.
+    """
+    state = state or load_quota(provider, path)
+    inv_pct = 100.0 * state.invocations / AWS_FREE_INVOCATIONS
+    gbs_pct = 100.0 * state.gb_seconds / AWS_FREE_GB_SECONDS
+    allowed, reason = can_use_cloud_crop(provider, state=state, path=path)
+    gate = "allowed" if allowed else f"blocked ({reason})"
+    lines = [
+        f"sharktopus cloud quota — {provider} — month {state.month}",
+        "-" * 60,
+        f"  invocations   : {state.invocations:>12,d} / {AWS_FREE_INVOCATIONS:>12,d}  ({inv_pct:5.2f}%)",
+        f"  GB-seconds    : {state.gb_seconds:>12,.1f} / {AWS_FREE_GB_SECONDS:>12,.0f}  ({gbs_pct:5.2f}%)",
+        f"  spend (paid)  : ${state.spend_usd:.4f}",
+        f"  avg duration  : {state.avg_duration_s:.2f} s  (memory {state.memory_mb} MB, {state.samples} samples)",
+        f"  est next call : ${estimate_invocation_cost(state):.6f}",
+        f"  next call     : {gate}",
+    ]
+    return "\n".join(lines)

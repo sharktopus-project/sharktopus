@@ -153,3 +153,19 @@ def test_percent_used(tmp_quota):
     state = aws_quota.load_quota("aws")
     state.invocations = aws_quota.AWS_FREE_INVOCATIONS // 2
     assert aws_quota.percent_of_free_tier_used(state) == pytest.approx(50.0)
+
+
+def test_format_quota_report_smokes(tmp_quota):
+    aws_quota.record_invocation("aws", duration_s=12.5, memory_mb=512)
+    report = aws_quota.format_quota_report("aws")
+    assert "aws" in report
+    assert "invocations" in report
+    assert "GB-seconds" in report
+    assert "next call" in report
+
+
+def test_top_level_quota_report_reexport(tmp_quota):
+    """``import sharktopus; sharktopus.quota_report()`` should work."""
+    import sharktopus
+    assert callable(sharktopus.quota_report)
+    assert "invocations" in sharktopus.quota_report("aws")

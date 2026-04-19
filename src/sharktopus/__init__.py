@@ -22,6 +22,7 @@ __version__ = "0.1.0"
 
 from . import batch, cloud, io, sources, wrf
 from .batch import available_sources, fetch_batch, generate_timestamps
+from .cloud import quota_report
 
 __all__ = [
     "__version__",
@@ -31,6 +32,7 @@ __all__ = [
     "fetch_batch",
     "generate_timestamps",
     "io",
+    "quota_report",
     "sources",
     "wrf",
 ]

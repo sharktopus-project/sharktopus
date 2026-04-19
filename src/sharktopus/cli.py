@@ -114,6 +114,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--availability", metavar="YYYYMMDD",
         help="Print which sources can serve this date (in priority order) and exit.",
     )
+    parser.add_argument(
+        "--quota", nargs="?", const="aws", metavar="PROVIDER",
+        help="Print local cloud-crop quota counter (default provider: aws) and exit.",
+    )
 
     return parser
 
@@ -226,6 +230,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.availability:
         _print_availability(args.availability)
+        return 0
+    if args.quota:
+        from .cloud import quota_report
+        print(quota_report(args.quota))
         return 0
 
     cfg: dict[str, Any] = {}

@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
-from .. import grib, paths
+from ..io import grib, paths
 from ._common import download_and_crop, download_byte_ranges_and_crop
 from .base import (
     SourceUnavailable,

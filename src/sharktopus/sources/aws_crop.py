@@ -48,7 +48,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
-from .. import aws_quota, grib, paths
+from ..cloud import aws_quota
+from ..io import grib, paths
 from .base import (
     SourceUnavailable,
     canonical_filename,

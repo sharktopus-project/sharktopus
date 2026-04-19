@@ -59,6 +59,12 @@ LAMBDA_EPHEMERAL_MB = int(os.environ.get("SHARKTOPUS_LAMBDA_EPHEMERAL", "4096"))
 
 
 def main() -> int:
+    """Entry point: parse CLI, resolve account/region, drive each ensure_* step.
+
+    The order matters: ECR image must exist before the Lambda can pull
+    it, the IAM role before the function can assume it, the S3 bucket
+    before the role policy scopes to it.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", help="AWS profile name")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"))
@@ -113,6 +119,20 @@ def main() -> int:
 # ---------------------------------------------------------------------------
 
 def ensure_ecr_image(session, region: str, account: str, *, skip_build: bool) -> str:
+    """Create the ECR repo if missing, then build+push the container image.
+
+    Returns the fully-qualified ECR image URI (``<account>.dkr.ecr.<region>
+    .amazonaws.com/<repo>:<tag>``) so the caller can point Lambda at it.
+
+    When *skip_build* is set, the function only resolves the URI —
+    useful for iterating on IAM/Lambda config without rebuilding the
+    image (which compiles wgrib2 from source and takes minutes).
+
+    BuildKit attestations (``--provenance`` / ``--sbom``) are disabled
+    because Lambda requires the classic Docker v2 manifest; the OCI
+    index that newer BuildKit emits gets rejected with "manifest…not
+    supported".
+    """
     ecr = session.client("ecr", region_name=region)
     try:
         ecr.describe_repositories(repositoryNames=[ECR_REPO])
@@ -168,6 +188,15 @@ def ensure_ecr_image(session, region: str, account: str, *, skip_build: bool) ->
 # ---------------------------------------------------------------------------
 
 def ensure_iam_role(session, bucket: str) -> str:
+    """Create or update the Lambda execution role.
+
+    Attaches :aws-managed:`AWSLambdaBasicExecutionRole` (CloudWatch
+    Logs) and an inline policy scoped to *bucket* for Put/Get/Delete.
+    Returns the role ARN.
+
+    ``put_role_policy`` / ``attach_role_policy`` are both idempotent —
+    re-running is cheap and safe.
+    """
     iam = session.client("iam")
     trust = {
         "Version": "2012-10-17",
@@ -216,6 +245,15 @@ def ensure_iam_role(session, bucket: str) -> str:
 # ---------------------------------------------------------------------------
 
 def ensure_s3_bucket(session, region: str, bucket: str) -> None:
+    """Create (or verify) the crops bucket and set a 7-day lifecycle rule.
+
+    When the function returns inline base64 (<4 MB), the bucket is
+    unused — but the s3 fallback path needs it, and the lifecycle rule
+    guarantees that even forgotten objects expire within a week.
+
+    Public access is blocked at the bucket level: outputs are reached
+    via short-lived presigned URLs only.
+    """
     s3 = session.client("s3", region_name=region)
     try:
         s3.head_bucket(Bucket=bucket)
@@ -261,6 +299,16 @@ def ensure_s3_bucket(session, region: str, bucket: str) -> None:
 # ---------------------------------------------------------------------------
 
 def ensure_lambda(session, region: str, image_uri: str, role_arn: str, bucket: str) -> str:
+    """Create the Lambda if missing, otherwise update code + configuration.
+
+    Waits between ``update_function_code`` and ``update_function_configuration``
+    because Lambda serializes those (a second mutating call on a
+    ``Pending`` function is rejected).
+
+    On first create, retries up to 10 times to ride out IAM propagation
+    — a fresh role frequently fails the first ``create_function`` with
+    "role defined for the function cannot be assumed".
+    """
     lam = session.client("lambda", region_name=region)
     env = {"Variables": {"SHARKTOPUS_S3_BUCKET": bucket, "LOG_LEVEL": "INFO"}}
 
@@ -313,6 +361,12 @@ def ensure_lambda(session, region: str, image_uri: str, role_arn: str, bucket: s
 
 
 def _wait_for_not_pending(lam, name: str) -> None:
+    """Poll ``get_function_configuration`` until the function is Active + Successful.
+
+    Every mutating Lambda call (code, config, publish) returns while
+    the function is still ``Pending``; subsequent mutations error. This
+    helper blocks for up to ~120 s and raises on failed updates.
+    """
     for _ in range(60):
         cfg = lam.get_function_configuration(FunctionName=name)
         state = cfg.get("State")
@@ -326,6 +380,11 @@ def _wait_for_not_pending(lam, name: str) -> None:
 
 
 def _run(cmd: list[str], *, input_text: str | None = None, capture: bool = True):
+    """Run a shell command, raising ``RuntimeError`` with stderr on non-zero exit.
+
+    Used for ``docker login/build/tag/push`` — boto3 covers the AWS
+    API, but the container image build stays on the local CLI.
+    """
     log.debug("$ %s", " ".join(cmd))
     r = subprocess.run(
         cmd,

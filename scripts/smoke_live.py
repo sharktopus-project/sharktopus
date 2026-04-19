@@ -34,8 +34,8 @@ os.environ.setdefault("SHARKTOPUS_DATA", "/tmp/sharktopus_live")
 
 import sharktopus
 from sharktopus import batch, wrf
-from sharktopus._wgrib2 import resolve_wgrib2
-from sharktopus.grib import verify
+from sharktopus.io.wgrib2 import resolve_wgrib2
+from sharktopus.io.grib import verify
 from sharktopus.sources import aws, azure, gcloud, nomads, nomads_filter, rda
 from sharktopus.sources.base import SourceUnavailable
 

@@ -1,4 +1,4 @@
-"""Tests for :mod:`sharktopus._queue` — priority queue with per-source heaps."""
+"""Tests for :mod:`sharktopus.batch.queue` — priority queue with per-source heaps."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import pytest
 
-from sharktopus._queue import MultiSourceQueue, Step
+from sharktopus.batch.queue import MultiSourceQueue, Step
 
 
 def _k(date: str, cycle: str = "00", fxx: int = 0) -> tuple[str, str, int]:

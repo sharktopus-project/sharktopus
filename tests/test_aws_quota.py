@@ -1,4 +1,4 @@
-"""Tests for sharktopus.aws_quota — local free-tier counter + policy gates."""
+"""Tests for sharktopus.cloud.aws_quota — local free-tier counter + policy gates."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sharktopus import aws_quota
+from sharktopus.cloud import aws_quota
 
 
 @pytest.fixture

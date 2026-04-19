@@ -30,7 +30,7 @@ from urllib.parse import urlencode
 
 from datetime import datetime
 
-from .. import grib, paths
+from ..io import grib, paths
 from .base import (
     SourceUnavailable,
     canonical_filename,

@@ -1,4 +1,4 @@
-"""Tests for sharktopus._wgrib2 (binary resolver)."""
+"""Tests for sharktopus.io.wgrib2 (binary resolver)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from sharktopus import _wgrib2
-from sharktopus._wgrib2 import (
+from sharktopus.io import wgrib2 as _wgrib2
+from sharktopus.io.wgrib2 import (
     WgribNotFoundError,
     bundled_wgrib2,
     ensure_wgrib2,

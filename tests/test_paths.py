@@ -1,4 +1,4 @@
-"""Tests for sharktopus.paths (default output convention)."""
+"""Tests for sharktopus.io.paths (default output convention)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from sharktopus import paths
+from sharktopus.io import paths
 
 
 # ---------------------------------------------------------------------------

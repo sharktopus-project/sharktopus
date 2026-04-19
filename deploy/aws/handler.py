@@ -79,6 +79,14 @@ DOWNLOAD_WORKERS = int(os.environ.get("SHARKTOPUS_DOWNLOAD_WORKERS", "16"))
 
 
 def lambda_handler(event, context):
+    """Lambda entry point: delegate to :func:`_process` and wrap the response.
+
+    Catches any exception from the pipeline and returns a 500 envelope
+    rather than letting Lambda retry (which would double-bill).
+    Measures wall time and attaches ``billed_duration_ms`` /
+    ``memory_mb`` so callers can budget the free tier against their own
+    telemetry.
+    """
     start_ns = time.monotonic_ns()
     try:
         result = _process(event)
@@ -93,6 +101,13 @@ def lambda_handler(event, context):
 
 
 def _process(event: dict) -> dict:
+    """Core pipeline: validate → find key → range-download → crop → package.
+
+    Uses an unsigned S3 client against the public ``noaa-gfs-bdp-pds``
+    bucket so no caller credentials leak into the source read path
+    (the output path uses the Lambda's own role). Scratch files live
+    under a ``TemporaryDirectory`` so /tmp is cleaned even on error.
+    """
     date, cycle, fxx = _parse_required(event)
     product = event.get("product", "pgrb2.0p25")
     response_mode = event.get("response_mode", "auto")
@@ -135,6 +150,13 @@ def _process(event: dict) -> dict:
 
 
 def _parse_required(event: dict) -> tuple[str, str, int]:
+    """Validate ``date``/``cycle``/``fxx`` from the event.
+
+    Fails fast with ``ValueError`` on the three shapes that routinely
+    go wrong: non-digit date, bad YYYYMMDD length, cycle outside
+    the 00/06/12/18 set. Everything else is left to downstream 404s
+    (e.g. fxx that GFS doesn't publish for that cycle).
+    """
     try:
         date = str(event["date"])
         cycle = str(event["cycle"]).zfill(2)
@@ -149,6 +171,12 @@ def _parse_required(event: dict) -> tuple[str, str, int]:
 
 
 def _detect_prefix(s3, date: str, cycle: str) -> str:
+    """Return the S3 key prefix for *date*/*cycle*, tolerating the legacy layout.
+
+    Dates ≥ ~2021-03 live under ``gfs.YYYYMMDD/CC/atmos/``. Older dates
+    use ``gfs.YYYYMMDD/CC/`` with no ``atmos`` subdir. A single
+    ``list_objects_v2`` with MaxKeys=1 is enough to disambiguate.
+    """
     atmos = f"gfs.{date}/{cycle}/atmos/"
     resp = s3.list_objects_v2(Bucket=SOURCE_BUCKET, Prefix=atmos, MaxKeys=1)
     if resp.get("Contents"):
@@ -220,6 +248,13 @@ def _pick_ranges(s3, key: str, idx_url: str, *, variables, levels):
 
 
 def _download_ranges(s3, key: str, ranges, raw_path: Path):
+    """Fetch each byte range in parallel and concatenate them into *raw_path*.
+
+    S3 range-GETs are independent TCP connections; running them
+    concurrently saturates the Lambda's egress link in a fraction of
+    the single-threaded time. ``DOWNLOAD_WORKERS`` is tuned for the
+    default 2048 MB memory class (which gets ~2 vCPU equivalents).
+    """
     parts: list[bytes | None] = [None] * len(ranges)
 
     def fetch(i: int) -> None:
@@ -239,6 +274,13 @@ def _download_ranges(s3, key: str, ranges, raw_path: Path):
 
 
 def _crop(raw_path: Path, bbox: dict, tmpd: Path) -> Path:
+    """Run ``wgrib2 -small_grib`` on *raw_path* with the given bbox.
+
+    ``-ncpu`` is set to the container's full CPU allocation (Lambda
+    exposes more vCPU as you provision more memory). Returns the path
+    to the cropped output under *tmpd*; caller removes the temp dir
+    on handler exit.
+    """
     lon_w = float(bbox["lon_w"])
     lon_e = float(bbox["lon_e"])
     lat_s = float(bbox["lat_s"])
@@ -259,6 +301,13 @@ def _crop(raw_path: Path, bbox: dict, tmpd: Path) -> Path:
 
 
 def _upload_presign(final_path: Path, event: dict) -> dict:
+    """Upload the cropped GRIB2 to S3 and return a presigned download URL.
+
+    Used for crops ≥ ~4 MB where the inline base64 response would
+    exceed Lambda's 6 MB synchronous payload ceiling. The key includes
+    a ``uuid4`` segment so concurrent invocations can't collide; the
+    7-day lifecycle rule on the bucket cleans up forgotten objects.
+    """
     bucket = event.get("s3_bucket") or DEFAULT_S3_BUCKET
     if not bucket:
         raise RuntimeError(

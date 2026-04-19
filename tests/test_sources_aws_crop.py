@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sharktopus import aws_quota
+from sharktopus.cloud import aws_quota
 from sharktopus.sources import aws_crop
 from sharktopus.sources.base import SourceUnavailable
 

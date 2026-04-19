@@ -1,4 +1,4 @@
-"""Tests for sharktopus.config (INI loader)."""
+"""Tests for sharktopus.io.config (INI loader)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from textwrap import dedent
 
 import pytest
 
-from sharktopus import config
+from sharktopus.io import config
 
 
 def _write(tmp_path, body: str):

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from ._wgrib2 import (
+from .wgrib2 import (
     WgribNotFoundError,
     bundled_wgrib2,
     ensure_wgrib2,

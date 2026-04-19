@@ -22,7 +22,7 @@ os.environ.setdefault("SHARKTOPUS_MAX_SPEND_USD", "0")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from sharktopus import grib
+from sharktopus.io import grib
 from sharktopus.sources import aws_crop
 
 

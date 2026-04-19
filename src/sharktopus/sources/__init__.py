@@ -22,10 +22,21 @@ Two sources take a different approach — server-side subsetting:
 - :mod:`sharktopus.sources.aws_crop` — invokes the ``sharktopus`` AWS
   Lambda, which byte-range-fetches and crops server-side, then returns
   the cropped GRIB2 inline or via a presigned S3 URL. Quota-gated by
-  :mod:`sharktopus.aws_quota` so free-tier exhaustion falls back to
+  :mod:`sharktopus.cloud.aws_quota` so free-tier exhaustion falls back to
   :mod:`sharktopus.sources.aws` instead of silently billing.
 """
 
+from . import aws, aws_crop, azure, gcloud, nomads, nomads_filter, rda
 from .base import SourceUnavailable, canonical_filename
 
-__all__ = ["SourceUnavailable", "canonical_filename"]
+__all__ = [
+    "SourceUnavailable",
+    "aws",
+    "aws_crop",
+    "azure",
+    "canonical_filename",
+    "gcloud",
+    "nomads",
+    "nomads_filter",
+    "rda",
+]

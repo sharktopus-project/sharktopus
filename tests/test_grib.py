@@ -1,4 +1,4 @@
-"""Tests for sharktopus.grib (layer 0)."""
+"""Tests for sharktopus.io.grib (layer 0)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sharktopus.grib import (
+from sharktopus.io.grib import (
     DEFAULT_WRF_PAD_LAT,
     DEFAULT_WRF_PAD_LON,
     GribError,
@@ -287,10 +287,10 @@ def test_crop_passes_omp_num_threads_when_given(tmp_path, monkeypatch):
     dst = tmp_path / "y.grib2"
     captured: dict = {}
     monkeypatch.setattr(
-        "sharktopus.grib.subprocess.run",
+        "sharktopus.io.grib.subprocess.run",
         _fake_subprocess_run_capture_env(captured),
     )
-    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    monkeypatch.setattr("sharktopus.io.grib.ensure_wgrib2", lambda _: "/bin/true")
     crop(src, dst, bbox=(-45, -40, -25, -20), omp_threads=8)
     assert captured["env"] is not None
     assert captured["env"]["OMP_NUM_THREADS"] == "8"
@@ -303,10 +303,10 @@ def test_crop_reads_shark_topus_omp_threads_env(tmp_path, monkeypatch):
     captured: dict = {}
     monkeypatch.setenv("SHARKTOPUS_OMP_THREADS", "4")
     monkeypatch.setattr(
-        "sharktopus.grib.subprocess.run",
+        "sharktopus.io.grib.subprocess.run",
         _fake_subprocess_run_capture_env(captured),
     )
-    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    monkeypatch.setattr("sharktopus.io.grib.ensure_wgrib2", lambda _: "/bin/true")
     crop(src, dst, bbox=(-45, -40, -25, -20))
     assert captured["env"]["OMP_NUM_THREADS"] == "4"
 
@@ -318,10 +318,10 @@ def test_crop_no_env_when_omp_not_set(tmp_path, monkeypatch):
     captured: dict = {}
     monkeypatch.delenv("SHARKTOPUS_OMP_THREADS", raising=False)
     monkeypatch.setattr(
-        "sharktopus.grib.subprocess.run",
+        "sharktopus.io.grib.subprocess.run",
         _fake_subprocess_run_capture_env(captured),
     )
-    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    monkeypatch.setattr("sharktopus.io.grib.ensure_wgrib2", lambda _: "/bin/true")
     crop(src, dst, bbox=(-45, -40, -25, -20))
     assert captured["env"] is None  # inherit parent env
 
@@ -333,18 +333,19 @@ def test_crop_explicit_beats_env(tmp_path, monkeypatch):
     captured: dict = {}
     monkeypatch.setenv("SHARKTOPUS_OMP_THREADS", "2")
     monkeypatch.setattr(
-        "sharktopus.grib.subprocess.run",
+        "sharktopus.io.grib.subprocess.run",
         _fake_subprocess_run_capture_env(captured),
     )
-    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    monkeypatch.setattr("sharktopus.io.grib.ensure_wgrib2", lambda _: "/bin/true")
     crop(src, dst, bbox=(-45, -40, -25, -20), omp_threads=16)
     assert captured["env"]["OMP_NUM_THREADS"] == "16"
 
 
-def test_crop_rejects_zero_omp_threads(tmp_path):
+def test_crop_rejects_zero_omp_threads(tmp_path, monkeypatch):
     src = tmp_path / "x.grib2"
     src.write_bytes(b"")
     dst = tmp_path / "y.grib2"
+    monkeypatch.setattr("sharktopus.io.grib.ensure_wgrib2", lambda _: "/bin/true")
     with pytest.raises(ValueError):
         crop(src, dst, bbox=(-45, -40, -25, -20), omp_threads=0)
 
@@ -354,7 +355,7 @@ def test_crop_rejects_garbage_env(tmp_path, monkeypatch):
     src.write_bytes(b"")
     dst = tmp_path / "y.grib2"
     monkeypatch.setenv("SHARKTOPUS_OMP_THREADS", "eight")
-    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    monkeypatch.setattr("sharktopus.io.grib.ensure_wgrib2", lambda _: "/bin/true")
     with pytest.raises(ValueError):
         crop(src, dst, bbox=(-45, -40, -25, -20))
 
@@ -365,10 +366,10 @@ def test_filter_vars_levels_passes_omp_env(tmp_path, monkeypatch):
     dst = tmp_path / "y.grib2"
     captured: dict = {}
     monkeypatch.setattr(
-        "sharktopus.grib.subprocess.run",
+        "sharktopus.io.grib.subprocess.run",
         _fake_subprocess_run_capture_env(captured),
     )
-    monkeypatch.setattr("sharktopus.grib.ensure_wgrib2", lambda _: "/bin/true")
+    monkeypatch.setattr("sharktopus.io.grib.ensure_wgrib2", lambda _: "/bin/true")
     filter_vars_levels(
         src, dst, variables=["TMP"], levels=["500 mb"], omp_threads=6,
     )

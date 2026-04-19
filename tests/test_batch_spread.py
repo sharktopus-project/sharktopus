@@ -105,7 +105,8 @@ def test_spread_auto_default_when_priority_autoresolved(
     batch.register_source("b", b, max_workers=1)
 
     # Force both into DEFAULT_PRIORITY so auto-resolve picks both.
-    monkeypatch.setattr(batch, "DEFAULT_PRIORITY", ("a", "b"))
+    from sharktopus.batch import priority as _priority
+    monkeypatch.setattr(_priority, "DEFAULT_PRIORITY", ("a", "b"))
 
     stamps = [f"202401{day:02d}00" for day in range(1, 7)]
     batch.fetch_batch(
@@ -333,12 +334,13 @@ def test_spread_global_ordering_oldest_first(isolated_registry, tmp_path):
 @pytest.fixture
 def reset_omp_warning():
     """Reset the one-shot warning flag so each test sees a clean slate."""
-    orig = batch._OMP_HEADROOM_WARNED
-    batch._OMP_HEADROOM_WARNED = False
+    from sharktopus.batch import spread as _spread
+    orig = _spread._OMP_HEADROOM_WARNED
+    _spread._OMP_HEADROOM_WARNED = False
     try:
         yield
     finally:
-        batch._OMP_HEADROOM_WARNED = orig
+        _spread._OMP_HEADROOM_WARNED = orig
 
 
 def test_omp_warning_fires_when_cores_idle(
@@ -352,7 +354,7 @@ def test_omp_warning_fires_when_cores_idle(
 
     monkeypatch.delenv("SHARKTOPUS_OMP_THREADS", raising=False)
     monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
-    monkeypatch.setattr("sharktopus.batch.os.cpu_count", lambda: 128)
+    monkeypatch.setattr("sharktopus.batch.spread.os.cpu_count", lambda: 128)
 
     with pytest.warns(UserWarning, match="SHARKTOPUS_OMP_THREADS"):
         batch.fetch_batch(
@@ -374,7 +376,7 @@ def test_omp_warning_silenced_when_env_set(
     batch.register_source("b", b, max_workers=2)
 
     monkeypatch.setenv("SHARKTOPUS_OMP_THREADS", "8")
-    monkeypatch.setattr("sharktopus.batch.os.cpu_count", lambda: 128)
+    monkeypatch.setattr("sharktopus.batch.spread.os.cpu_count", lambda: 128)
 
     import warnings as _warnings
     with _warnings.catch_warnings():
@@ -399,7 +401,7 @@ def test_omp_warning_not_fired_on_small_hosts(
 
     monkeypatch.delenv("SHARKTOPUS_OMP_THREADS", raising=False)
     monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
-    monkeypatch.setattr("sharktopus.batch.os.cpu_count", lambda: 8)
+    monkeypatch.setattr("sharktopus.batch.spread.os.cpu_count", lambda: 8)
 
     import warnings as _warnings
     with _warnings.catch_warnings():
@@ -424,7 +426,7 @@ def test_omp_warning_fires_only_once(
 
     monkeypatch.delenv("SHARKTOPUS_OMP_THREADS", raising=False)
     monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
-    monkeypatch.setattr("sharktopus.batch.os.cpu_count", lambda: 128)
+    monkeypatch.setattr("sharktopus.batch.spread.os.cpu_count", lambda: 128)
 
     import warnings as _warnings
     with _warnings.catch_warnings(record=True) as caught:

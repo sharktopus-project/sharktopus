@@ -33,7 +33,8 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from . import batch, config
+from . import batch
+from .io import config
 
 __all__ = ["build_parser", "main"]
 

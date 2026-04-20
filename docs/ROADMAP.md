@@ -20,7 +20,7 @@ CONVECT radar-DA pipeline) before the next layer starts.
 ├──────────────────────────────────────────────────────────────┤
 │ 0. wgrib2 + .idx utilities   (sharktopus.grib)
 └──────────────────────────────────────────────────────────────┘
-              ← Layers 0–2 + 5 all done; Layer 3/4 next
+       ← Layers 0–5 done for AWS + GCloud. Azure (Layer 3/4) pending.
 ```
 
 ## Layer 0 — `sharktopus.grib` — DONE (v0.0.1)
@@ -56,18 +56,47 @@ Iterates cycles × fxx, falls back across sources on `SourceUnavailable`,
 parallelizes with `ThreadPoolExecutor` sized to the minimum
 `DEFAULT_MAX_WORKERS` across the priority list (anti-throttle).
 
-## Layer 3 — `sharktopus.cloud` (extra `[cloud]`)
+## Layer 3 — cloud-crop sources — DONE for AWS + GCloud (unreleased)
 
-Invokes the serverless recortadores deployed in Layer 4. Reads endpoint
-URLs from `~/.sharktopus/config.json` (written by `deploy.setup`).
+Cloud-side cropping: the serverless endpoint reads the public GFS
+mirror byte-range itself and returns only the cropped GRIB2. Two
+sources implemented:
 
-## Layer 4 — `sharktopus.deploy` (extra `[cloud]`)
+1. ✅ `aws_crop` — invokes AWS Lambda (`sharktopus`) via boto3.
+2. ✅ `gcloud_crop` — POSTs to Cloud Run (`sharktopus-crop`) via
+   HTTPS + OIDC ID token.
+3. ⏳ `azure_crop` — Azure Functions analogue (Task #52, Phase 2).
 
-Ported from CONVECT's `orchestration/deploy/{aws,gcloud,azure,common}.py`.
-`setup("aws"|"gcloud"|"azure")` creates all resources and saves config.
+Both deliver in two modes (auto-selected by payload size):
+`inline` (base64 in the HTTP response, ≤ 20 MB) and `s3`/`gcs`
+(signed URL valid for 1 h, client downloads and deletes).
+
+Free-tier quota tracking (`sharktopus.cloud.{aws,gcloud}_quota`)
+shares the same `~/.cache/sharktopus/quota.json`, keyed by provider.
+Gates: `SHARKTOPUS_ACCEPT_CHARGES`, `SHARKTOPUS_MAX_SPEND_USD`.
+
+## Layer 4 — `deploy/{aws,gcloud}/provision.py` — DONE (unreleased)
+
+One-shot provisioning scripts, each idempotent:
+
+- **`deploy/aws/provision.py`** — creates ECR Pull-Through Cache rule
+  pointing at `ghcr.io`, IAM role, S3 bucket with 7-day lifecycle,
+  deploys the `sharktopus` Lambda (container image, 2048 MB, 300 s).
+- **`deploy/gcloud/provision.py`** — enables APIs, creates GCS bucket
+  with 7-day lifecycle, creates an AR **remote repository** named
+  `ghcr-proxy` (Cloud Run refuses `ghcr.io/*` URLs directly), deploys
+  `sharktopus-crop` to Cloud Run (1 vCPU, 2 GiB, 300 s timeout).
+- **`sharktopus --setup {gcloud,aws}`** (`src/sharktopus/setup.py`) —
+  interactive wrapper around the two scripts. Detects the cloud CLI,
+  offers user-space install (opt-in), walks through browser OAuth,
+  then calls the right `provision.py`. ~4 prompts end-to-end.
+
+Azure Functions deploy remains Task #52.
 
 ## Layer 5 — `sharktopus.cli` — DONE (unreleased)
 
 `sharktopus` entry point mirrors CONVECT's `download_batch_cli.py` flag
 names, reads INI config via `sharktopus.config`, and runs everything
-through `fetch_batch`.
+through `fetch_batch`. Adds `--list-sources`, `--availability`,
+`--quota {aws,gcloud}`, and `--setup {gcloud,aws}` for introspection
+and bootstrap.

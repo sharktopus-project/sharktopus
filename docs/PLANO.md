@@ -333,21 +333,27 @@ sharktopus/
 
 ## Próximo passo imediato
 
-**Camada 1 completa (sessão 2026-04-18).** Seis fontes registradas:
-`nomads`, `nomads_filter`, `aws`, `gcloud`, `azure`, `rda`. Todas as
-cinco full-file compartilham o recipe `_common.download_and_crop`.
+**Camadas 0–5 funcionais (2026-04-20).** AWS Lambda + GCloud Cloud Run
+em produção, CLI com `--setup` para bootstrap one-shot, docs de deploy
++ billing + auth prontos. Frentes de trabalho pendentes, em ordem de
+prioridade:
 
-Próxima frente de trabalho — escolher entre:
-
-1. **Shipping preview.** Tag `v0.1.0`, CI roda, wheel sai como artifact
-   no GitHub Actions, consumidores conseguem `pip install` via
-   `git+https://...`. Caminho mais curto pra feedback real.
-2. **Camada 3 (cloud invoke).** Implementar os wrappers para invocar
-   Lambda / Cloud Run / Azure Function já deployadas pelo CONVECT, e
-   registrar como fontes `lambda` / `gcloud_run` / `azure_func`.
-3. **Observabilidade.** Adicionar logging estruturado em `fetch_batch`
-   (tempo por step, bytes transferidos, cache-hit vs download, qual
-   fonte venceu) — útil antes do preview público.
+1. **Azure Functions crop source** (task #52). Terceira nuvem;
+   recipe já desenhado em `deploy/aws` / `deploy/gcloud` — replicar.
+   Destrava round-robin entre 3 nuvens para user no free tier.
+2. **Release público v0.1.0 no PyPI.** Tag existe (task #38) e wheel
+   CI gera artefato; falta `twine upload` + conda-forge recipe PR
+   (task #15). JOSS paper skeleton + Zenodo DOI depois.
+3. **Rewrite `deploy/gcloud/provision.py` em Python puro** —
+   `google-cloud-run` + `google-cloud-storage` + `google-cloud-artifact-registry`
+   substituem shell-out ao `gcloud` CLI. Faz o `--setup gcloud` não
+   exigir install do gcloud no host do deployer.
+4. **Live test `sharktopus --setup` num host limpo.** Megashark já tem
+   gcloud instalado; validar o fluxo de install opt-in exige VM
+   scratch (ou container leve).
+5. **Observabilidade.** Logging estruturado em `fetch_batch` (tempo
+   por step, bytes, cache-hit, fonte vencedora) — útil quando users
+   externos começarem a reportar regressões.
 
 ---
 
@@ -364,6 +370,72 @@ Próxima frente de trabalho — escolher entre:
 ---
 
 ## Log de sessões
+
+### 2026-04-20 — `sharktopus --setup {gcloud,aws}` + docs de auth/billing
+- Bootstrap subcommand novo: `sharktopus --setup gcloud` ou `--setup aws`
+  detecta o CLI da nuvem, oferece install user-space opt-in
+  (`~/google-cloud-sdk` / `~/.local/aws-cli`), guia o browser-OAuth
+  (imprime o comando, espera ENTER — sem stdin-forwarding frágil) e
+  chama o `provision.py` correspondente. ~4 prompts end-to-end,
+  nada silencioso. `pip install` nunca dispara.
+- `deploy/aws/provision.py` ganhou `_hint_credentials()` que traduz
+  erros boto3 em ações concretas: SSO expirado → `aws sso login`;
+  ProfileNotFound → `aws configure sso`; NoCredentials → escolha de
+  método.
+- `docs/DEPLOY_AWS.md` (novo) e `docs/DEPLOY_GCLOUD.md` (seção Auth
+  expandida): IAM Identity Center documentada como caminho recomendado,
+  chaves estáticas como fallback. `gcloud auth login --no-launch-browser`
+  e sua gotcha no Claude `!` prefix (sem forward de stdin) documentadas.
+- `docs/IMAGE_STORAGE_AND_BILLING.md` (novo): modelo "pull once" da
+  imagem container — primeiro cold start puxa do GHCR, AR/ECR cacheia,
+  próximas invocações servem do cache. Headroom confortável no free
+  tier (AR ~66 MB vs 500 MB; ECR ~90 MB vs 500 MB).
+- Bug de auth em produção resolvido: `google.oauth2.id_token.fetch_id_token`
+  não aceita ADC tipo user (só SA / metadata server). `gcloud_crop`
+  agora faz fallback para `gcloud auth print-identity-token`
+  (commit `a31d341`). Smoke real contra Cloud Run: 16103 bytes GRIB2,
+  6 records, 1.0-1.3 s warm.
+- Commits: `a31d341`, `cc69166`, `b2c8592`, `7334261`.
+
+### 2026-04-19 — GCloud Cloud Run deploy + GHCR→AR proxy
+- Camada 3 segunda nuvem: `sharktopus.sources.gcloud_crop` análogo
+  ao `aws_crop`, tira partido do free tier de Cloud Run (2M req/mês,
+  180k vCPU-s, 360k GiB-s). Dois modes de delivery: `inline`
+  (base64, cap 20 MB) e `gcs` (signed URL 1 h, objeto auto-apagado;
+  retido com `SHARKTOPUS_RETAIN_GCS=true`).
+- `deploy/gcloud/provision.py`: cria AR remote repo `ghcr-proxy`
+  apontando para `ghcr.io` — Cloud Run recusa `ghcr.io/*` diretamente,
+  só aceita `gcr.io`, `*-docker.pkg.dev`, `docker.io`. AR proxy é
+  o análogo GCloud do ECR Pull-Through Cache do AWS.
+- Fix libgfortran ABI mismatch no Dockerfile Cloud Run (runtime base
+  tinha libgfortran5, binário wgrib2 buildado contra libgfortran4).
+- Matrix CI build: `.github/workflows/build-image.yml` publica duas
+  variantes (`lambda`, `cloudrun`) em GHCR a cada push em `main`,
+  cache buildx separado por scope.
+- `DEFAULT_PRIORITY` agora
+  `("aws_crop", "gcloud_crop", "gcloud", "aws", "azure", "rda", "nomads")`.
+  `supports(date)` de cada cloud source requer credencial viável —
+  hosts sem GCloud/AWS configurado silenciosamente dropam a fonte.
+- CLI: `--quota {aws,gcloud}` despacha para o tracker correspondente.
+- 29 testes novos. Commits: `3e375d0`, `eddfb03`, `593a2e4`.
+
+### 2026-04-18 (b) — AWS Lambda deploy + CI GHCR publish
+- Camada 3 primeira nuvem: `sharktopus.sources.aws_crop` invoca Lambda
+  deployada em `deploy/aws/provision.py` (container image + ECR
+  Pull-Through Cache do GHCR + S3 bucket com lifecycle 7d + IAM role).
+  Free-tier tracker (`sharktopus.cloud.aws_quota`): 1M req/mo +
+  400k GB-s/mo antes de spend; gates `SHARKTOPUS_ACCEPT_CHARGES` /
+  `SHARKTOPUS_MAX_SPEND_USD`.
+- Handler Lambda devolve GRIB2 em dois modos: `inline` (base64 ≤ 20 MB,
+  default para crops pequenos) e `s3` (presigned URL 1 h). Client
+  baixa-deleta; `SHARKTOPUS_RETAIN_S3` retém.
+- CI `.github/workflows/build-image.yml` publica
+  `ghcr.io/sharktopus-project/sharktopus:lambda-latest`; provision
+  rewrite usa PTC para evitar GitHub auth no Lambda cold start.
+- Refactor: `src/sharktopus/` split em subpacotes — `sources/`,
+  `cloud/`, `batch/` (era monolito). Imports externos quebrados
+  atualizados.
+- Commits: `1579660`, `7ca755d`, `de65173`, `1504084`.
 
 ### 2026-04-18 — Camada 1 completa: AWS + GCloud + Azure + RDA
 - Quatro fontes novas portadas seguindo o mesmo contrato de `nomads.py`:

@@ -177,10 +177,27 @@ def _id_token_for(audience: str) -> str | None:
 
     Cloud Run authenticated endpoints expect ``Authorization: Bearer
     <id_token>`` where the token is audience-scoped. Returns ``None``
-    when ADC isn't available; the caller then sends the request
-    unauthenticated, which works against ``--allow-unauthenticated``
+    when no credential source works; the caller then sends the request
+    unauthenticated, which only works against ``--allow-unauthenticated``
     services.
+
+    Resolution order:
+
+    1. ``SHARKTOPUS_GCLOUD_ID_TOKEN`` env var — explicit override for
+       CI / containerized envs where neither ADC nor gcloud CLI is set.
+    2. ``google.oauth2.id_token.fetch_id_token`` — works with the
+       metadata server (GCE / Cloud Run / GKE) and with service-account
+       ADC. This is the common production path.
+    3. ``gcloud auth print-identity-token`` — required fallback for
+       **user-type ADC** (`gcloud auth application-default login`),
+       which the ``google-auth`` library cannot mint ID tokens for.
+       Typical dev / laptop scenario.
     """
+    import os
+    override = os.environ.get("SHARKTOPUS_GCLOUD_ID_TOKEN")
+    if override:
+        return override.strip()
+
     try:
         import google.auth.transport.requests as gat
         from google.oauth2 import id_token as id_token_mod
@@ -188,7 +205,33 @@ def _id_token_for(audience: str) -> str | None:
         req = gat.Request()
         return id_token_mod.fetch_id_token(req, audience)
     except Exception:
-        return None
+        pass
+
+    try:
+        import shutil
+        import subprocess
+        gcloud = shutil.which("gcloud")
+        if not gcloud:
+            return None
+        r = subprocess.run(
+            [gcloud, "auth", "print-identity-token",
+             f"--audiences={audience}"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode == 0:
+            tok = r.stdout.strip()
+            return tok or None
+        # Older gcloud or user-creds that reject --audiences — retry without.
+        r = subprocess.run(
+            [gcloud, "auth", "print-identity-token"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode == 0:
+            tok = r.stdout.strip()
+            return tok or None
+    except Exception:
+        pass
+    return None
 
 
 def _build_payload(

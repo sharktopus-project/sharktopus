@@ -119,6 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("aws", "gcloud"),
         help="Print local cloud-crop quota counter and exit (aws|gcloud; default aws).",
     )
+    parser.add_argument(
+        "--setup", metavar="CLOUD",
+        choices=("gcloud", "aws"),
+        help=(
+            "Bootstrap a cloud-crop deploy: install the CLI (opt-in, "
+            "user-space), guide through browser auth, run provision.py."
+        ),
+    )
 
     return parser
 
@@ -236,6 +244,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .cloud import quota_report
         print(quota_report(args.quota))
         return 0
+    if args.setup:
+        from .setup import run_setup
+        return run_setup(args.setup)
 
     cfg: dict[str, Any] = {}
     if args.config:

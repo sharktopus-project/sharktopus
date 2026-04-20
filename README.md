@@ -293,13 +293,24 @@ sharktopus --quota aws       # AWS Lambda invocations / GB-s / spend
 sharktopus --quota gcloud    # Cloud Run invocations / vCPU-s / GiB-s / spend
 ```
 
-One-shot provisioning in your GCloud project:
+One-shot provisioning in your GCloud project. The shortest path for a
+fresh machine — installs the `gcloud` CLI (user-space, opt-in, with
+a confirmation prompt), walks through browser auth, and runs the
+provision script:
 
 ```bash
-# Deploys sharktopus-crop to Cloud Run (us-central1), creates the
-# crops bucket with a 7-day lifecycle, and prints the service URL
-# to export as SHARKTOPUS_GCLOUD_URL for clients.
-python deploy/gcloud/provision.py --project my-project
+sharktopus --setup gcloud     # ~4 prompts end-to-end, nothing silent
+sharktopus --setup aws        # same flow for the AWS Lambda deploy
+```
+
+The setup command never installs during `pip install`; it only runs
+when you ask for it. Behind the scenes it calls the provision scripts
+directly, so you can skip it and run them yourself if preferred:
+
+```bash
+# Equivalent manual path (both still supported)
+python deploy/gcloud/provision.py --project my-project --authenticated-only
+python deploy/aws/provision.py    --profile my-profile --region us-east-1
 
 # Auto-discovery also works: when SHARKTOPUS_GCLOUD_URL is unset the
 # client queries run.googleapis.com for the service named

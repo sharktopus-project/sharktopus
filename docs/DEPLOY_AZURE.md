@@ -70,13 +70,49 @@ a password into a terminal to use sharktopus, it's wrong — ask.
 
 ## Step 1 — Authenticate
 
-Two supported auth paths. Only one is needed.
+Three supported auth paths. Pick the one that matches your host:
 
-### Option A — Azure CLI + browser sign-in (recommended)
+| Path | Requires `az` CLI? | Requires sudo? | Best for |
+|---|---|---|---|
+| **A. Pure Python (browser)** | No | No | Single-machine developers who don't want extra tooling |
+| **B. Azure CLI + browser** | Yes (one sudo install) | Yes, once | Users who already have `az` or want the richer CLI |
+| **C. Service principal env vars** | No | No | CI runners, shared hosts, headless deploys |
 
-**This is the path you want 99% of the time.** You sign in on
-Microsoft's own website; no secret ever touches this repo or your
-terminal history.
+Options A and B both use the same Microsoft browser sign-in page — your
+password is always typed at `microsoft.com`, never in your terminal or
+anywhere in this repo.
+
+### Option A — Pure Python, no CLI install (recommended for laptops)
+
+`provision.py --auth browser` uses `azure-identity`'s
+`InteractiveBrowserCredential`, which opens the system browser against
+Microsoft's public developer OAuth client. You authorise, the SDK
+keeps a short-lived refresh token in memory, and the deploy runs. No
+`az` CLI, no sudo, nothing installed outside your Python venv.
+
+```bash
+pip install \
+    azure-identity azure-mgmt-resource azure-mgmt-storage \
+    azure-mgmt-appcontainers azure-mgmt-loganalytics \
+    azure-mgmt-authorization azure-mgmt-subscription
+
+python deploy/azure/provision.py --auth browser --location eastus2
+# → opens a browser window at microsoft.com
+# → if you have multiple subscriptions, provision.py lists them and asks
+# → deploy proceeds
+```
+
+For SSH / headless hosts, use `--auth device-code` instead: the script
+prints a short code + URL, you open the URL on any device (a phone
+works), paste the code, and the polling finishes in the terminal.
+
+### Option B — Azure CLI + browser sign-in
+
+For users who prefer having the Azure CLI for unrelated reasons, or
+who already installed it. Functionally equivalent to Option A: same
+browser, same Microsoft sign-in page, same no-password-in-terminal
+posture. The CLI just persists the refresh token to `~/.azure/`
+between runs, so you don't re-login every day.
 
 Install the CLI (sudo **once**):
 
@@ -105,7 +141,7 @@ az account set --subscription <ID>
 `DefaultAzureCredential` in `provision.py` picks up the CLI session
 automatically. **No env vars, no secrets in the shell.**
 
-### Option B — Service principal (no sudo, headless CI, shared hosts)
+### Option C — Service principal (headless CI, shared hosts)
 
 For environments where sudo/Azure-CLI isn't an option. A service
 principal is an Azure-AD identity with its own client ID + secret
@@ -163,8 +199,14 @@ pip install \
     azure-mgmt-storage \
     azure-mgmt-appcontainers \
     azure-mgmt-loganalytics \
-    azure-mgmt-authorization
+    azure-mgmt-authorization \
+    azure-mgmt-subscription
 ```
+
+`azure-mgmt-subscription` is only needed when using `--auth browser` or
+`--auth device-code` without passing `--subscription` — that's how
+`provision.py` lists the visible subscriptions for you to pick. Skip
+it if you always pass `--subscription` explicitly.
 
 (The runtime client only needs `requests` + optionally
 `azure-identity` + `azure-storage-blob` for SAS-mode large crops.)

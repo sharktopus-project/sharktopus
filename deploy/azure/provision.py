@@ -26,9 +26,24 @@ Resources created (names overridable via env vars / CLI flags):
   account for the Container App's managed identity (so server-side
   SAS generation via user-delegation key works).
 
-Auth: uses ``DefaultAzureCredential`` — honours ``az login``, env
-credentials, managed identity, etc. Subscription comes from
-``--subscription`` / ``AZURE_SUBSCRIPTION_ID``.
+Auth: three paths selectable via ``--auth``:
+
+* ``default`` (the default) — ``DefaultAzureCredential``: honours env
+  vars, the ``az login`` session in ``~/.azure/``, managed identity.
+  Best when the host already has the Azure CLI and the user has run
+  ``az login`` once.
+* ``browser`` — ``InteractiveBrowserCredential``: opens the default
+  browser and signs in directly against Microsoft. **No Azure CLI
+  required.** Uses Microsoft's well-known public client ID for
+  developer tooling.
+* ``device-code`` — ``DeviceCodeCredential``: prints a short code +
+  URL, you open the URL on any device (phone works), authorise there,
+  the script polls until done. Same zero-CLI posture as ``browser``
+  but works over SSH / in containers / on headless hosts.
+
+Subscription: ``--subscription`` / ``AZURE_SUBSCRIPTION_ID``. If
+omitted and ``--auth`` is interactive (``browser`` / ``device-code``),
+the script lists visible subscriptions and prompts.
 
 Usage::
 
@@ -98,17 +113,33 @@ def main() -> int:
         help="Cap on Container App replicas. Default: 10.",
     )
     parser.add_argument(
+        "--auth",
+        choices=("default", "browser", "device-code"),
+        default=os.environ.get("SHARKTOPUS_AZURE_AUTH", "default"),
+        help=(
+            "Credential source. 'default' uses DefaultAzureCredential "
+            "(az CLI session / env vars / managed identity). 'browser' and "
+            "'device-code' sign in directly without the az CLI."
+        ),
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Print what would happen without touching Azure.",
     )
     args = parser.parse_args()
 
-    if not args.subscription:
-        raise SystemExit(
-            "error: --subscription (or AZURE_SUBSCRIPTION_ID) must be set"
-        )
+    cred = _make_credential(args.auth)
 
     sub = args.subscription
+    if not sub:
+        if args.auth in ("browser", "device-code"):
+            sub = _pick_subscription(cred)
+        else:
+            raise SystemExit(
+                "error: --subscription (or AZURE_SUBSCRIPTION_ID) must be set"
+                " when --auth=default"
+            )
+
     rg = args.resource_group
     location = args.location
     image = f"{GHCR_IMAGE}:{args.image_tag}"
@@ -116,6 +147,7 @@ def main() -> int:
 
     if args.dry_run:
         log.info("DRY RUN — nothing will be created.")
+        log.info("  Auth mode    : %s", args.auth)
         log.info("  Subscription : %s", sub)
         log.info("  Resource grp : %s (%s)", rg, location)
         log.info("  Storage acct : %s (container %s, 7d lifecycle)",
@@ -126,7 +158,7 @@ def main() -> int:
                  args.min_replicas, args.max_replicas)
         return 0
 
-    _cred, clients = _clients(sub)
+    clients = _clients(cred, sub)
 
     _ensure_providers(clients["resource_providers"])
     _ensure_resource_group(clients["resources"], rg, location)
@@ -169,7 +201,66 @@ def main() -> int:
 # ---------------------------------------------------------------------------
 
 
-def _clients(subscription: str) -> tuple[object, dict]:
+_AZURE_SDK_PIP_HINT = (
+    "    pip install "
+    "azure-identity azure-mgmt-resource azure-mgmt-storage "
+    "azure-mgmt-appcontainers azure-mgmt-loganalytics "
+    "azure-mgmt-authorization azure-mgmt-subscription\n"
+)
+
+
+def _make_credential(auth: str):
+    """Return an ``azure-identity`` credential for the chosen auth mode."""
+    try:
+        from azure.identity import (
+            DefaultAzureCredential,
+            DeviceCodeCredential,
+            InteractiveBrowserCredential,
+        )
+    except ImportError as e:
+        raise SystemExit(
+            f"error: azure-identity not installed. Run:\n{_AZURE_SDK_PIP_HINT}"
+            f"(import failed: {e})"
+        )
+    if auth == "browser":
+        log.info("Opening browser for Azure sign-in ...")
+        return InteractiveBrowserCredential()
+    if auth == "device-code":
+        return DeviceCodeCredential()
+    return DefaultAzureCredential()
+
+
+def _pick_subscription(cred) -> str:
+    """Interactive picker: list subscriptions visible to ``cred``."""
+    try:
+        from azure.mgmt.subscription import SubscriptionClient
+    except ImportError as e:
+        raise SystemExit(
+            "error: azure-mgmt-subscription not installed. Run:\n"
+            f"{_AZURE_SDK_PIP_HINT}"
+            f"(import failed: {e})"
+        )
+    subs = list(SubscriptionClient(cred).subscriptions.list())
+    if not subs:
+        raise SystemExit("error: no subscriptions visible to this identity.")
+    if len(subs) == 1:
+        only = subs[0]
+        log.info("Using the only visible subscription: %s (%s)",
+                 only.display_name, only.subscription_id)
+        return only.subscription_id
+    print("Pick a subscription:")
+    for i, s in enumerate(subs):
+        print(f"  [{i}] {s.display_name} ({s.subscription_id})")
+    while True:
+        raw = input("Choice [0]: ").strip() or "0"
+        try:
+            idx = int(raw)
+            return subs[idx].subscription_id
+        except (ValueError, IndexError):
+            print(f"  ↳ not a valid index; pick 0..{len(subs) - 1}")
+
+
+def _clients(cred, subscription: str) -> dict:
     """Instantiate the Azure SDK management clients we need.
 
     Gated behind a helpful error so a fresh install without the azure
@@ -177,7 +268,6 @@ def _clients(subscription: str) -> tuple[object, dict]:
     ``ImportError`` from deep inside the ARM layer.
     """
     try:
-        from azure.identity import DefaultAzureCredential
         from azure.mgmt.appcontainers import ContainerAppsAPIClient
         from azure.mgmt.authorization import AuthorizationManagementClient
         from azure.mgmt.loganalytics import LogAnalyticsManagementClient
@@ -185,17 +275,12 @@ def _clients(subscription: str) -> tuple[object, dict]:
         from azure.mgmt.storage import StorageManagementClient
     except ImportError as e:
         raise SystemExit(
-            "error: Azure SDK not installed. Run:\n"
-            "    pip install "
-            "azure-identity azure-mgmt-resource azure-mgmt-storage "
-            "azure-mgmt-appcontainers azure-mgmt-loganalytics "
-            "azure-mgmt-authorization\n"
+            f"error: Azure SDK not installed. Run:\n{_AZURE_SDK_PIP_HINT}"
             f"(import failed: {e})"
         )
 
-    cred = DefaultAzureCredential()
     resources = ResourceManagementClient(cred, subscription)
-    return cred, {
+    return {
         "resources": resources,
         "resource_providers": resources.providers,
         "storage": StorageManagementClient(cred, subscription),

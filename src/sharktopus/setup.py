@@ -369,67 +369,113 @@ def _install_az() -> str:
 
 def _setup_azure() -> int:
     print("== sharktopus setup azure ==")
-    az = _find_az() or _install_az()
-    print(f"[1/3] Azure CLI: {az}")
 
-    # --- [2/3] Login
-    show = subprocess.run(
-        [az, "account", "show"],
-        capture_output=True, text=True,
-    )
-    if show.returncode != 0:
-        print()
-        print("[2/3] Azure CLI has no active subscription.")
-        print("      Sign in via Microsoft's browser page — your password")
-        print("      is typed at microsoft.com, never in this terminal.")
-        print("      The CLI keeps only a short-lived refresh token in ~/.azure/.")
-        print()
-        print("      Run in a terminal:")
-        print(f"          {az} login                    # opens default browser")
-        print(f"          {az} login --use-device-code  # headless / SSH")
-        try:
-            input("      Press ENTER when login completes... ")
-        except (KeyboardInterrupt, EOFError):
-            print()
-            return 130
+    # --- [1/3] Pick auth path.
+    # Two dimensions: (a) install/use az CLI, or (b) go pure-Python.
+    # If az is already on PATH we ask which to use; otherwise we offer
+    # install OR pure-Python OR service principal env vars.
+    az = _find_az()
+    if az:
+        print(f"[1/3] Azure CLI found at {az}.")
+        print("      Pick an auth path:")
+        print("        (a) Use installed az CLI (reads ~/.azure/ session)")
+        print("        (b) Pure Python (no CLI calls; azure-identity opens browser)")
+        choice = _ask("Choice", default="a").lower()
+        mode = "cli" if choice.startswith("a") else "py"
+    else:
+        print("[1/3] Azure CLI not installed. Pick an auth path:")
+        print("        (a) Install az CLI (sudo once + browser login)")
+        print("        (b) Pure Python (no install, no sudo, browser login)")
+        print("        (c) Service principal env vars (CI / headless)")
+        choice = _ask("Choice", default="b").lower()
+        if choice.startswith("a"):
+            az = _install_az()
+            mode = "cli"
+        elif choice.startswith("c"):
+            mode = "sp"
+        else:
+            mode = "py"
+
+    subscription: str | None = None
+    if mode == "cli":
+        # Use the az CLI session.
         show = subprocess.run(
             [az, "account", "show"],
             capture_output=True, text=True,
         )
         if show.returncode != 0:
-            print("setup: still no active subscription after login", file=sys.stderr)
+            print()
+            print("      az has no active session. In a terminal run:")
+            print(f"          {az} login                    # opens default browser")
+            print(f"          {az} login --use-device-code  # headless / SSH")
+            print("      Your password is typed at microsoft.com, never here.")
+            try:
+                input("      Press ENTER when login completes... ")
+            except (KeyboardInterrupt, EOFError):
+                print()
+                return 130
+            show = subprocess.run(
+                [az, "account", "show"],
+                capture_output=True, text=True,
+            )
+            if show.returncode != 0:
+                print("setup: still no active subscription after login",
+                      file=sys.stderr)
+                return 2
+        sub_cmd = subprocess.run(
+            [az, "account", "show", "--query", "id", "-o", "tsv"],
+            capture_output=True, text=True,
+        )
+        subscription = _ask(
+            "Azure subscription ID",
+            default=sub_cmd.stdout.strip() or None,
+        )
+    elif mode == "sp":
+        # Env-var service principal; provision.py's DefaultAzureCredential
+        # will pick it up.
+        missing = [
+            v for v in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET")
+            if not os.environ.get(v)
+        ]
+        if missing:
+            print(
+                "setup: missing env vars for service principal: "
+                + ", ".join(missing),
+                file=sys.stderr,
+            )
             return 2
+        subscription = _ask(
+            "Azure subscription ID",
+            default=os.environ.get("AZURE_SUBSCRIPTION_ID"),
+        )
+    # mode == "py": subscription stays None; provision.py lists and prompts
+    #               after the browser login against the InteractiveBrowserCredential.
 
-    # Extract default subscription id without parsing JSON (stdlib json
-    # would work, but --query keeps the dependency surface minimal).
-    sub_cmd = subprocess.run(
-        [az, "account", "show", "--query", "id", "-o", "tsv"],
-        capture_output=True, text=True,
-    )
-    default_sub = sub_cmd.stdout.strip() or None
-    subscription = _ask("Azure subscription ID", default=default_sub)
-    if not subscription:
-        print("setup: subscription is required", file=sys.stderr)
-        return 2
     location = _ask("Azure region (location)", default="eastus2")
     rg = _ask("Resource group", default="sharktopus-rg")
-    print(f"[2/3] Using subscription {subscription} in {location}")
+
+    summary = f"[2/3] Auth: {mode}"
+    if subscription:
+        summary += f"   Subscription: {subscription}"
+    summary += f"   Region: {location}"
+    print(summary)
 
     # --- [3/3] Deploy
     print()
     print(f"[3/3] Provisioning Container App in {rg}/{location} ...")
     script = _find_provision_script("azure")
     env = os.environ.copy()
-    env["AZURE_SUBSCRIPTION_ID"] = subscription
-    rc = _run(
-        [
-            sys.executable, str(script),
-            "--subscription", subscription,
-            "--location", location,
-            "--resource-group", rg,
-        ],
-        env=env,
-    )
+    auth_flag = "browser" if mode == "py" else "default"
+    cmd = [
+        sys.executable, str(script),
+        "--auth", auth_flag,
+        "--location", location,
+        "--resource-group", rg,
+    ]
+    if subscription:
+        cmd += ["--subscription", subscription]
+        env["AZURE_SUBSCRIPTION_ID"] = subscription
+    rc = _run(cmd, env=env)
     if rc != 0:
         print("setup: provision.py failed", file=sys.stderr)
         return rc

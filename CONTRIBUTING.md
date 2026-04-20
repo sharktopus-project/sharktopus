@@ -35,6 +35,23 @@ PYTHONPATH=src python -m pytest
 - Follow the patterns in existing source modules under `src/sharktopus/sources/`
   when adding a new mirror or cloud-side crop backend.
 
+## Server-side changes (cloud-crop handlers)
+
+Code under `deploy/<cloud>/` (Dockerfile, `main.py` / `handler.py`,
+`requirements.txt`) runs inside AWS Lambda / GCloud Cloud Run / Azure
+Container Apps. Changing anything there triggers a new container image
+build on GHCR via `.github/workflows/build-image.yml`. See
+[`docs/CONTRIBUTING_IMAGES.md`](docs/CONTRIBUTING_IMAGES.md) for:
+
+- how the three-variant build matrix (`lambda` / `cloudrun` / `azure`) works,
+- how to test the handler locally with `docker build` + `docker run`,
+- how to verify a published tag on GHCR,
+- what to do when adding a fourth cloud variant.
+
+End-user client changes (under `src/sharktopus/`) don't need any of
+that — you only care about the image pipeline if you touched a
+`deploy/` directory.
+
 ## Writing tests
 
 - Every code change needs at least one test. If the change is a bug fix, the

@@ -51,7 +51,10 @@ For CI, `AZURE_TENANT_ID` + `AZURE_CLIENT_ID` + `AZURE_CLIENT_SECRET`
   `Microsoft.OperationalInsights` resource providers — `provision.py`
   registers these on first run.
 - The `sharktopus` GHCR container package marked **public** (once per
-  GitHub org). See the GCloud doc for the visibility change.
+  GitHub org). Contributor-side details — CI matrix, tag naming, how
+  to rebuild the image locally — are in
+  [`docs/CONTRIBUTING_IMAGES.md`](CONTRIBUTING_IMAGES.md). End users
+  deploying from an upstream image don't need to touch any of that.
 
 ## Step 1 — Authenticate
 

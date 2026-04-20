@@ -20,8 +20,7 @@ CONVECT radar-DA pipeline) before the next layer starts.
 ├──────────────────────────────────────────────────────────────┤
 │ 0. wgrib2 + .idx utilities   (sharktopus.grib)
 └──────────────────────────────────────────────────────────────┘
-       ← Layers 0–5 done for AWS + GCloud + Azure (code ready;
-       ←   Azure live-deploy pending — snowshark host has credentials).
+       ← Layers 0–5 done for AWS + GCloud + Azure — all three live.
 ```
 
 ## Layer 0 — `sharktopus.grib` — DONE (v0.0.1)
@@ -57,7 +56,7 @@ Iterates cycles × fxx, falls back across sources on `SourceUnavailable`,
 parallelizes with `ThreadPoolExecutor` sized to the minimum
 `DEFAULT_MAX_WORKERS` across the priority list (anti-throttle).
 
-## Layer 3 — cloud-crop sources — DONE (live on AWS + GCloud; Azure code-complete)
+## Layer 3 — cloud-crop sources — DONE (live on AWS + GCloud + Azure)
 
 Cloud-side cropping: the serverless endpoint reads the public GFS
 mirror byte-range itself and returns only the cropped GRIB2. Three
@@ -66,10 +65,10 @@ sources implemented:
 1. ✅ `aws_crop` — invokes AWS Lambda (`sharktopus`) via boto3.
 2. ✅ `gcloud_crop` — POSTs to Cloud Run (`sharktopus-crop`) via
    HTTPS + OIDC ID token.
-3. 🟡 `azure_crop` — POSTs to Azure Container Apps (`sharktopus-crop`)
+3. ✅ `azure_crop` — POSTs to Azure Container Apps (`sharktopus-crop`)
    via plain HTTPS (no auth by default; optional bearer token).
-   Code, docs and image variant are in place; awaiting live deploy on
-   snowshark.
+   Live on megashark's subscription (2026-04-20), smoke passed on the
+   WRF-canonical payload.
 
 All three deliver in two modes (auto-selected by payload size):
 `inline` (base64 in the HTTP response, ≤ 20 MB) and

@@ -4,7 +4,27 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+### Verified live
+- **Azure Container App live on megashark's Azure subscription** —
+  `sharktopus-crop` at `https://sharktopus-crop.ashyhill-35d1f7dd.
+  eastus.azurecontainerapps.io`, pulling
+  `ghcr.io/sharktopus-project/sharktopus:azure-latest`. Canonical
+  WRF-payload smoke (`scripts/smoke_wrf_canonical.py`,
+  `SMOKE_PROVIDERS=azure`): 269 records / 248,982 bytes in 10.7 s on
+  the 2026-04-19 00Z f006 cycle, bbox (-43.5,-41.0,-23.5,-22.0), 13
+  vars × 49 levels. All three cloud-crop sources now live.
+
 ### Added
+- **Contributor doc `docs/CONTRIBUTING_IMAGES.md`** covering the GHCR
+  image-publishing pipeline: three-variant build matrix
+  (`lambda` / `cloudrun` / `azure`), tag naming scheme, public-package
+  one-time setup, local `docker build` testing, how to add a new
+  cloud variant, OCI index manifest Accept-header gotcha. Linked from
+  `CONTRIBUTING.md` and `DEPLOY_AZURE.md`.
+- **Clearer browser-auth framing** in `docs/DEPLOY_AZURE.md` and the
+  interactive `sharktopus --setup azure` wrapper: password is typed
+  at `microsoft.com`, never in the terminal; service-principal env
+  vars reserved for CI / sudo-less hosts.
 - **Azure cloud-side cropping** via a Container Apps service
   (`sharktopus.sources.azure_crop`). Parallel path to `aws_crop` /
   `gcloud_crop`: the same OCI image used on Cloud Run runs on

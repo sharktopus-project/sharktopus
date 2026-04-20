@@ -72,6 +72,43 @@ LAMBDA_EPHEMERAL_MB = int(os.environ.get("SHARKTOPUS_LAMBDA_EPHEMERAL", "4096"))
 HOT_ALIAS = "live"
 
 
+def _hint_credentials(exc: Exception, profile: str | None) -> None:
+    """Translate boto3's auth errors into something the user can act on.
+
+    The three common cases:
+
+    * **SSO token expired** (``SSOTokenLoadError`` /
+      ``UnauthorizedSSOTokenError``) — user just needs to re-login;
+      nothing persistent broke.
+    * **Profile missing** (``ProfileNotFound``) — wrong ``--profile`` or
+      the user hasn't run ``aws configure sso`` yet.
+    * **No creds at all** (``NoCredentialsError``) — neither static keys
+      nor an SSO session; first-time setup.
+
+    We'd rather point the user at ``aws sso login`` / ``aws configure sso``
+    than dump a raw stack trace that mentions obscure botocore internals.
+    """
+    msg = str(exc)
+    cls = type(exc).__name__
+    prof = profile or os.environ.get("AWS_PROFILE") or "<default>"
+    log.error("AWS authentication failed: %s — %s", cls, msg.splitlines()[0][:200])
+
+    if "SSO" in cls or "sso" in msg.lower() or "token" in msg.lower():
+        log.error("Hint: your AWS SSO session has expired (or was never started).")
+        log.error("      Run:  aws sso login --profile %s", prof)
+    elif "ProfileNotFound" in cls:
+        log.error("Hint: profile %r is not configured in ~/.aws/config.", prof)
+        log.error("      Run:  aws configure sso   (recommended, browser-based)")
+        log.error("       or:  aws configure --profile %s   (static keys fallback)", prof)
+    elif "NoCredentials" in cls:
+        log.error("Hint: no AWS credentials found in env or ~/.aws/. Pick one:")
+        log.error("      Browser SSO (no long-lived keys):  aws configure sso")
+        log.error("      Static keys:                       aws configure")
+    else:
+        log.error("Hint: confirm you can call `aws sts get-caller-identity`"
+                  " (or the equivalent via your chosen auth method) before retrying.")
+
+
 def main() -> int:
     """Entry point: parse CLI, resolve account/region, drive each ensure_* step.
 
@@ -112,7 +149,11 @@ def main() -> int:
 
     session = boto3.Session(profile_name=args.profile) if args.profile else boto3.Session()
     sts = session.client("sts", region_name=args.region)
-    identity = sts.get_caller_identity()
+    try:
+        identity = sts.get_caller_identity()
+    except Exception as e:  # noqa: BLE001 — narrow via message
+        _hint_credentials(e, args.profile)
+        return 2
     account = identity["Account"]
     log.info("Target account %s region %s (ARN=%s)", account, args.region, identity["Arn"])
 

@@ -9,6 +9,30 @@ Validated end-to-end on **2026-04-19** against
 
 ---
 
+## Authentication — no password touches sharktopus
+
+`provision.py` shells out to the `gcloud` CLI; it never sees your
+password, never reads a credential JSON, never stores anything beyond
+what `gcloud` itself caches. The supported auth paths below are all
+**browser-based OAuth2** — you click "Authorize" once in a browser,
+Google issues a refresh token that `gcloud` holds in
+`~/.config/gcloud/`, and that's it. You can revoke the authorization
+any time at <https://myaccount.google.com/permissions>.
+
+Two flows, both using the same browser-authorize model:
+
+| Purpose                 | Command                                         | Creates                       |
+|-------------------------|--------------------------------------------------|-------------------------------|
+| `gcloud` CLI itself     | `gcloud auth login --no-launch-browser`          | Token used by `gcloud ...`    |
+| Python client (ADC)     | `gcloud auth application-default login ...`      | Token used by `google-auth`   |
+
+The deployer needs both (provision.py uses gcloud; the Python client
+later uses ADC to mint ID tokens for authenticated Cloud Run calls).
+For a **service-account-based production setup** (e.g., CI), a JSON
+key file can replace both — see the bottom of this doc.
+
+---
+
 ## Prerequisites
 
 - A GCloud project with **billing enabled** (free-tier usage still

@@ -15,7 +15,7 @@ optionally crop locally with wgrib2:
 - :mod:`sharktopus.sources.azure` — Azure Blob ``noaagfs/gfs``.
 - :mod:`sharktopus.sources.rda` — NCAR RDA ``ds084.1`` (long-term archive).
 
-Two sources take a different approach — server-side subsetting:
+Four sources take a different approach — server-side subsetting:
 
 - :mod:`sharktopus.sources.nomads_filter` — NOMADS ``filter_gfs_0p25.pl``
   asks the server to return only the requested variables/levels/window.
@@ -24,9 +24,23 @@ Two sources take a different approach — server-side subsetting:
   the cropped GRIB2 inline or via a presigned S3 URL. Quota-gated by
   :mod:`sharktopus.cloud.aws_quota` so free-tier exhaustion falls back to
   :mod:`sharktopus.sources.aws` instead of silently billing.
+- :mod:`sharktopus.sources.gcloud_crop` — same idea, on Cloud Run
+  (gated by :mod:`sharktopus.cloud.gcloud_quota`).
+- :mod:`sharktopus.sources.azure_crop` — same idea, on Container Apps
+  (gated by :mod:`sharktopus.cloud.azure_quota`).
 """
 
-from . import aws, aws_crop, azure, gcloud, nomads, nomads_filter, rda
+from . import (
+    aws,
+    aws_crop,
+    azure,
+    azure_crop,
+    gcloud,
+    gcloud_crop,
+    nomads,
+    nomads_filter,
+    rda,
+)
 from .base import SourceUnavailable, canonical_filename
 
 __all__ = [
@@ -34,8 +48,10 @@ __all__ = [
     "aws",
     "aws_crop",
     "azure",
+    "azure_crop",
     "canonical_filename",
     "gcloud",
+    "gcloud_crop",
     "nomads",
     "nomads_filter",
     "rda",

@@ -10,10 +10,10 @@ name: Build and publish container images
 #   - :{variant}-<ref>             (on git tag v*, e.g. v0.1.0)
 #   - :{variant}-{major}.{minor}   (on git tag v*, e.g. 0.1)
 #
-# Where {variant} is either ``lambda`` (deploy/aws/Dockerfile → AWS
-# Lambda, pulled by deploy/aws/provision.py via ECR PTC) or
-# ``cloudrun`` (deploy/gcloud/Dockerfile → Cloud Run, deployed by
-# deploy/gcloud/provision.py via `gcloud run deploy`).
+# Where {variant} is one of:
+#   - ``lambda``   (deploy/aws/Dockerfile    → AWS Lambda via ECR PTC)
+#   - ``cloudrun`` (deploy/gcloud/Dockerfile → GCloud Cloud Run)
+#   - ``azure``    (deploy/azure/Dockerfile  → Azure Container Apps)
 #
 # End users never build these themselves. `provision.py` just points
 # their cloud account at the right GHCR tag.
@@ -49,6 +49,9 @@ jobs:
           - variant: cloudrun
             context: deploy/gcloud
             dockerfile: deploy/gcloud/Dockerfile
+          - variant: azure
+            context: deploy/azure
+            dockerfile: deploy/azure/Dockerfile
 
     steps:
       - name: Checkout

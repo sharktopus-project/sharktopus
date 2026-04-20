@@ -116,12 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--quota", nargs="?", const="aws", metavar="PROVIDER",
-        choices=("aws", "gcloud"),
-        help="Print local cloud-crop quota counter and exit (aws|gcloud; default aws).",
+        choices=("aws", "gcloud", "azure"),
+        help="Print local cloud-crop quota counter and exit (aws|gcloud|azure; default aws).",
     )
     parser.add_argument(
         "--setup", metavar="CLOUD",
-        choices=("gcloud", "aws"),
+        choices=("gcloud", "aws", "azure"),
         help=(
             "Bootstrap a cloud-crop deploy: install the CLI (opt-in, "
             "user-space), guide through browser auth, run provision.py."

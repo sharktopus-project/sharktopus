@@ -5,6 +5,61 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **Azure cloud-side cropping** via a Container Apps service
+  (`sharktopus.sources.azure_crop`). Parallel path to `aws_crop` /
+  `gcloud_crop`: the same OCI image used on Cloud Run runs on
+  Container Apps with ingress on port 8080, reads GFS byte-ranges
+  from the anonymous `noaagfs.blob.core.windows.net` mirror, and
+  returns only the cropped bytes. Two delivery modes, auto-selected:
+  - `inline` — base64-encoded GRIB2 in the HTTP response (cap 20 MB,
+    Container Apps tolerates 100 MB bodies; same safety headroom as
+    Cloud Run).
+  - `blob` — service uploads to a private blob container under
+    `crops/` and returns a SAS GET URL signed with a user-delegation
+    key (managed identity), valid for 24 h by default; client
+    downloads then deletes the blob (retained when
+    `SHARKTOPUS_RETAIN_BLOB=true`). 7-day lifecycle on the container
+    is the backstop.
+- **Container Apps free-tier quota tracking**
+  (`sharktopus.cloud.azure_quota`) shares the JSON cache with the
+  AWS + GCloud trackers, keyed by provider name (`azure`). Tracks
+  three dimensions (invocations 2M/mo, vCPU-seconds 180k/mo,
+  GiB-seconds 360k/mo) — structurally identical to Cloud Run, prices
+  slightly different ($0.40/M req, $0.000024/vCPU-s, $0.0000026/GB-s).
+  Same `SHARKTOPUS_LOCAL_CROP` / `SHARKTOPUS_ACCEPT_CHARGES` /
+  `SHARKTOPUS_MAX_SPEND_USD` env gates.
+- **Azure one-shot provisioning** (`deploy/azure/provision.py`) —
+  pure-Python, uses the Azure management SDKs (no `az` shell-out).
+  Idempotently registers resource providers, creates the resource
+  group, storage account + blob container (7-day lifecycle), Log
+  Analytics workspace, Container App Environment (Consumption plan),
+  and the Container App itself pulling
+  `ghcr.io/sharktopus-project/sharktopus:azure-latest` straight from
+  GHCR. System-assigned managed identity on the app gets Storage
+  Blob Data Contributor on the storage account so user-delegation
+  SAS works. Prints the public ingress URL.
+- **`sharktopus --setup azure`** extends the bootstrap wrapper with an
+  Azure path: guides through `az login --use-device-code`, prompts
+  for subscription / region / resource group, runs
+  `deploy/azure/provision.py`.
+- **`docs/DEPLOY_AZURE.md`** — runbook covering why Container Apps
+  (not Functions) sidesteps the wgrib2 zip-deploy issue, auth,
+  prerequisites, step-by-step deploy, smoke test, free-tier
+  accounting, teardown.
+- **`deploy/azure/` image** — Dockerfile mirrors `deploy/gcloud/`
+  (python:3.11-slim-bookworm + wgrib2 + Flask). `requirements.txt`
+  swaps `google-cloud-storage` for `azure-storage-blob` +
+  `azure-identity`. `main.py` adapts the GCloud handler: GCS SDK →
+  Blob SDK, V4 signed URL → SAS from user-delegation key,
+  `gcs_bucket` / `gcs_url` envelope keys → `blob_container` /
+  `blob_url`. Same HTTP contract otherwise.
+- `DEFAULT_PRIORITY` now leads with all three cloud-crop sources —
+  `("aws_crop", "gcloud_crop", "azure_crop", "gcloud", "aws",
+  "azure", "rda", "nomads")`. `azure_crop.supports(date)` requires
+  both `requests` and either `SHARKTOPUS_AZURE_URL` or the azure
+  SDKs so hosts without Azure configured silently drop it.
+- CLI `--quota azure` dispatches to the Container Apps tracker.
+
 - **`sharktopus --setup {gcloud,aws}`** — one-command bootstrap that
   detects the cloud CLI, offers a user-space install (opt-in, with
   explicit download prompt), walks through browser-OAuth, and runs

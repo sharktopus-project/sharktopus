@@ -334,23 +334,25 @@ sharktopus/
 ## Próximo passo imediato
 
 **Camadas 0–5 funcionais (2026-04-20).** AWS Lambda + GCloud Cloud Run
-em produção, CLI com `--setup` para bootstrap one-shot, docs de deploy
-+ billing + auth prontos. Frentes de trabalho pendentes, em ordem de
++ Azure Container Apps (código pronto — deploy pendente) em produção,
+CLI com `--setup {aws,gcloud,azure}` para bootstrap one-shot, docs de
+deploy + billing + auth prontos. Frentes pendentes em ordem de
 prioridade:
 
-1. **Azure Functions crop source** (task #52). Terceira nuvem;
-   recipe já desenhado em `deploy/aws` / `deploy/gcloud` — replicar.
-   Destrava round-robin entre 3 nuvens para user no free tier.
+1. **Deploy real do Azure Container Apps** na snowshark (`az` já
+   logado). `deploy/azure/provision.py` + imagem `azure-latest` no
+   GHCR já existem; rodar e validar smoke WRF-canonical.
 2. **Release público v0.1.0 no PyPI.** Tag existe (task #38) e wheel
    CI gera artefato; falta `twine upload` + conda-forge recipe PR
    (task #15). JOSS paper skeleton + Zenodo DOI depois.
 3. **Rewrite `deploy/gcloud/provision.py` em Python puro** —
    `google-cloud-run` + `google-cloud-storage` + `google-cloud-artifact-registry`
-   substituem shell-out ao `gcloud` CLI. Faz o `--setup gcloud` não
-   exigir install do gcloud no host do deployer.
-4. **Live test `sharktopus --setup` num host limpo.** Megashark já tem
-   gcloud instalado; validar o fluxo de install opt-in exige VM
-   scratch (ou container leve).
+   substituem shell-out ao `gcloud` CLI. Paridade com
+   `deploy/azure/provision.py` (já pure-Python). Faz o `--setup gcloud`
+   não exigir install do gcloud no host do deployer.
+4. **Live test `sharktopus --setup {aws,gcloud,azure}` num host limpo.**
+   Megashark/snowshark já têm as CLIs instaladas; validar o fluxo de
+   install opt-in exige VM scratch (ou container leve).
 5. **Observabilidade.** Logging estruturado em `fetch_batch` (tempo
    por step, bytes, cache-hit, fonte vencedora) — útil quando users
    externos começarem a reportar regressões.
@@ -370,6 +372,35 @@ prioridade:
 ---
 
 ## Log de sessões
+
+### 2026-04-20 (c) — Azure Container Apps crop source (código + docs)
+- Decisão: **Container Apps, não Functions.** O wgrib2 zip-deploy
+  antigo (CONVECT experimento) brigava com o runtime do Functions.
+  Container Apps aceita imagem OCI genérica → reusamos a imagem do
+  Cloud Run (`ghcr.io/sharktopus-project/sharktopus:azure-latest`,
+  apenas swap de `google-cloud-storage` por `azure-storage-blob`).
+- Módulos novos: `sharktopus.cloud.azure_quota` (tracker 3-dim:
+  2M req, 180k vCPU-s, 360k GB-s — estrutura idêntica a Cloud Run,
+  preços levemente diferentes), `sharktopus.sources.azure_crop`
+  (cliente HTTPS com descoberta via `ContainerAppsAPIClient`, modos
+  `inline` / `blob` com SAS por user-delegation key).
+- `deploy/azure/`: `provision.py` em Python puro (azure-mgmt-{resource,
+  storage,appcontainers,loganalytics,authorization} + azure-identity).
+  Cria RG + Storage V2 + container `crops` com lifecycle 7d +
+  Log Analytics + Container App Environment + Container App (1 vCPU,
+  2 GiB, scale 0..10) + role assignment `Storage Blob Data
+  Contributor` na identity gerenciada. `main.py` reusa a pipeline do
+  Cloud Run, troca GCS V4 signed URL por SAS delegado.
+- CLI: `--quota azure`, `--setup azure` funcionais. `DEFAULT_PRIORITY`
+  agora inicia com `("aws_crop", "gcloud_crop", "azure_crop", ...)`.
+- Docs: `docs/DEPLOY_AZURE.md` novo (auth via `az login` ou service
+  principal, prerequisites, step-by-step, smoke, free-tier, teardown,
+  troubleshooting). CHANGELOG entry adicionado.
+- Testes: 299/299 passando após registrar `azure_crop` em
+  `batch/registry.py` e `batch/priority.py`.
+- **Pendente:** deploy real na snowshark (rodar
+  `python deploy/azure/provision.py` com `AZURE_SUBSCRIPTION_ID` já
+  disponível via `az account show`) + smoke WRF-canonical.
 
 ### 2026-04-20 (b) — Smoke WRF-canonical nas duas nuvens
 - `scripts/smoke_wrf_canonical.py` novo: envia o perfil completo

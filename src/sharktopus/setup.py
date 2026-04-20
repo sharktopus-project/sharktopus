@@ -1,7 +1,7 @@
 """Interactive bootstrap for a cloud-crop deploy.
 
-``sharktopus --setup {gcloud,aws}`` walks the user through the three
-things that stand between a fresh ``pip install`` and a working
+``sharktopus --setup {gcloud,aws,azure}`` walks the user through the
+three things that stand between a fresh ``pip install`` and a working
 cloud-crop endpoint:
 
 1. **Install the provider CLI** (user-space, opt-in, with an explicit
@@ -29,6 +29,7 @@ __all__ = ["run_setup"]
 HOME = Path.home()
 GCLOUD_HOME = HOME / "google-cloud-sdk"
 AWS_CLI_HOME = HOME / ".local" / "aws-cli"
+AZURE_CLI_HOME = HOME / ".local" / "azure-cli"
 LOCAL_BIN = HOME / ".local" / "bin"
 
 
@@ -45,6 +46,8 @@ def run_setup(cloud: str) -> int:
         return _setup_gcloud()
     if cloud == "aws":
         return _setup_aws()
+    if cloud == "azure":
+        return _setup_azure()
     print(f"setup: unknown cloud {cloud!r}", file=sys.stderr)
     return 2
 
@@ -327,4 +330,109 @@ def _setup_aws() -> int:
           " sharktopus.fetch_batch(timestamps=['2026041700'], lat_s=-25, lat_n=-20,"
           " lon_w=-50, lon_e=-40, ext=6, interval=3, priority=['aws_crop'],"
           " variables=['TMP'], levels=['500 mb'])\"")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Azure walkthrough
+# ---------------------------------------------------------------------------
+
+def _find_az() -> str | None:
+    p = shutil.which("az")
+    if p:
+        return p
+    candidate = AZURE_CLI_HOME / "bin" / "az"
+    return str(candidate) if candidate.exists() else None
+
+
+def _install_az() -> str:
+    """Point the user at Microsoft's install script and wait.
+
+    Unlike gcloud and AWS CLI, Azure CLI doesn't publish a clean
+    user-space tarball — the official installer runs via a bash
+    script that touches ``/usr/local``. We surface it but require
+    the user to run it themselves (sudo prompt).
+    """
+    print()
+    print("Azure CLI not found.")
+    print("  Microsoft does not publish a user-space tarball. Run the")
+    print("  official installer (needs sudo once):")
+    print("      curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash")
+    print("  Or: https://learn.microsoft.com/cli/azure/install-azure-cli")
+    if not _confirm("I've installed it; continue?", default=False):
+        raise SystemExit("setup: aborted waiting for az install")
+    az = shutil.which("az")
+    if not az:
+        raise SystemExit("setup: az still not on PATH — please install and re-run")
+    return az
+
+
+def _setup_azure() -> int:
+    print("== sharktopus setup azure ==")
+    az = _find_az() or _install_az()
+    print(f"[1/3] Azure CLI: {az}")
+
+    # --- [2/3] Login
+    show = subprocess.run(
+        [az, "account", "show"],
+        capture_output=True, text=True,
+    )
+    if show.returncode != 0:
+        print()
+        print("[2/3] Azure CLI has no active subscription.")
+        print("      Run in a terminal (device-code flow, no browser required):")
+        print(f"          {az} login --use-device-code")
+        try:
+            input("      Press ENTER when login completes... ")
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return 130
+        show = subprocess.run(
+            [az, "account", "show"],
+            capture_output=True, text=True,
+        )
+        if show.returncode != 0:
+            print("setup: still no active subscription after login", file=sys.stderr)
+            return 2
+
+    # Extract default subscription id without parsing JSON (stdlib json
+    # would work, but --query keeps the dependency surface minimal).
+    sub_cmd = subprocess.run(
+        [az, "account", "show", "--query", "id", "-o", "tsv"],
+        capture_output=True, text=True,
+    )
+    default_sub = sub_cmd.stdout.strip() or None
+    subscription = _ask("Azure subscription ID", default=default_sub)
+    if not subscription:
+        print("setup: subscription is required", file=sys.stderr)
+        return 2
+    location = _ask("Azure region (location)", default="eastus2")
+    rg = _ask("Resource group", default="sharktopus-rg")
+    print(f"[2/3] Using subscription {subscription} in {location}")
+
+    # --- [3/3] Deploy
+    print()
+    print(f"[3/3] Provisioning Container App in {rg}/{location} ...")
+    script = _find_provision_script("azure")
+    env = os.environ.copy()
+    env["AZURE_SUBSCRIPTION_ID"] = subscription
+    rc = _run(
+        [
+            sys.executable, str(script),
+            "--subscription", subscription,
+            "--location", location,
+            "--resource-group", rg,
+        ],
+        env=env,
+    )
+    if rc != 0:
+        print("setup: provision.py failed", file=sys.stderr)
+        return rc
+
+    print()
+    print("Done. Quick test:")
+    print("  python -c \"from sharktopus.sources import azure_crop;"
+          " p = azure_crop.fetch_step('20260417','00',6,"
+          " bbox=(-50,-40,-25,-20), variables=['TMP'], levels=['500 mb']);"
+          " print(p, p.stat().st_size, 'bytes')\"")
     return 0

@@ -24,6 +24,7 @@ from ..sources import (
     aws,
     aws_crop,
     azure,
+    azure_crop,
     gcloud,
     gcloud_crop,
     nomads,
@@ -56,6 +57,7 @@ _REGISTRY = SourceRegistry(
     gcloud=gcloud.fetch_step,
     gcloud_crop=gcloud_crop.fetch_step,
     azure=azure.fetch_step,
+    azure_crop=azure_crop.fetch_step,
     rda=rda.fetch_step,
 )
 
@@ -68,6 +70,7 @@ _WORKER_DEFAULTS: dict[str, int] = {
     "gcloud": gcloud.DEFAULT_MAX_WORKERS,
     "gcloud_crop": gcloud_crop.DEFAULT_MAX_WORKERS,
     "azure": azure.DEFAULT_MAX_WORKERS,
+    "azure_crop": azure_crop.DEFAULT_MAX_WORKERS,
     "rda": rda.DEFAULT_MAX_WORKERS,
 }
 
@@ -80,6 +83,7 @@ _SUPPORTS: dict[str, _SupportsFn] = {
     "gcloud": gcloud.supports,
     "gcloud_crop": gcloud_crop.supports,
     "azure": azure.supports,
+    "azure_crop": azure_crop.supports,
     "rda": rda.supports,
 }
 

@@ -20,7 +20,8 @@ CONVECT radar-DA pipeline) before the next layer starts.
 ├──────────────────────────────────────────────────────────────┤
 │ 0. wgrib2 + .idx utilities   (sharktopus.grib)
 └──────────────────────────────────────────────────────────────┘
-       ← Layers 0–5 done for AWS + GCloud. Azure (Layer 3/4) pending.
+       ← Layers 0–5 done for AWS + GCloud + Azure (code ready;
+       ←   Azure live-deploy pending — snowshark host has credentials).
 ```
 
 ## Layer 0 — `sharktopus.grib` — DONE (v0.0.1)
@@ -56,26 +57,30 @@ Iterates cycles × fxx, falls back across sources on `SourceUnavailable`,
 parallelizes with `ThreadPoolExecutor` sized to the minimum
 `DEFAULT_MAX_WORKERS` across the priority list (anti-throttle).
 
-## Layer 3 — cloud-crop sources — DONE for AWS + GCloud (unreleased)
+## Layer 3 — cloud-crop sources — DONE (live on AWS + GCloud; Azure code-complete)
 
 Cloud-side cropping: the serverless endpoint reads the public GFS
-mirror byte-range itself and returns only the cropped GRIB2. Two
+mirror byte-range itself and returns only the cropped GRIB2. Three
 sources implemented:
 
 1. ✅ `aws_crop` — invokes AWS Lambda (`sharktopus`) via boto3.
 2. ✅ `gcloud_crop` — POSTs to Cloud Run (`sharktopus-crop`) via
    HTTPS + OIDC ID token.
-3. ⏳ `azure_crop` — Azure Functions analogue (Task #52, Phase 2).
+3. 🟡 `azure_crop` — POSTs to Azure Container Apps (`sharktopus-crop`)
+   via plain HTTPS (no auth by default; optional bearer token).
+   Code, docs and image variant are in place; awaiting live deploy on
+   snowshark.
 
-Both deliver in two modes (auto-selected by payload size):
-`inline` (base64 in the HTTP response, ≤ 20 MB) and `s3`/`gcs`
-(signed URL valid for 1 h, client downloads and deletes).
+All three deliver in two modes (auto-selected by payload size):
+`inline` (base64 in the HTTP response, ≤ 20 MB) and
+`s3`/`gcs`/`blob` (signed URL valid for 1–24 h, client downloads
+and deletes).
 
-Free-tier quota tracking (`sharktopus.cloud.{aws,gcloud}_quota`)
+Free-tier quota tracking (`sharktopus.cloud.{aws,gcloud,azure}_quota`)
 shares the same `~/.cache/sharktopus/quota.json`, keyed by provider.
 Gates: `SHARKTOPUS_ACCEPT_CHARGES`, `SHARKTOPUS_MAX_SPEND_USD`.
 
-## Layer 4 — `deploy/{aws,gcloud}/provision.py` — DONE (unreleased)
+## Layer 4 — `deploy/{aws,gcloud,azure}/provision.py` — DONE (unreleased)
 
 One-shot provisioning scripts, each idempotent:
 
@@ -86,17 +91,22 @@ One-shot provisioning scripts, each idempotent:
   with 7-day lifecycle, creates an AR **remote repository** named
   `ghcr-proxy` (Cloud Run refuses `ghcr.io/*` URLs directly), deploys
   `sharktopus-crop` to Cloud Run (1 vCPU, 2 GiB, 300 s timeout).
-- **`sharktopus --setup {gcloud,aws}`** (`src/sharktopus/setup.py`) —
-  interactive wrapper around the two scripts. Detects the cloud CLI,
-  offers user-space install (opt-in), walks through browser OAuth,
-  then calls the right `provision.py`. ~4 prompts end-to-end.
-
-Azure Functions deploy remains Task #52.
+- **`deploy/azure/provision.py`** — pure-Python, uses the azure-mgmt-*
+  SDKs. Creates RG, Storage V2 + blob container (7-day lifecycle),
+  Log Analytics workspace, Container App Environment, Container App
+  pulling directly from GHCR (Container Apps accepts public
+  `ghcr.io/*` URLs — no registry mirror). Grants the app's managed
+  identity `Storage Blob Data Contributor` for SAS generation.
+- **`sharktopus --setup {gcloud,aws,azure}`** (`src/sharktopus/setup.py`)
+  — interactive wrapper around the three scripts. Detects the cloud
+  CLI, offers user-space install (opt-in; Azure requires sudo once,
+  per Microsoft's installer), walks through browser OAuth, then calls
+  the right `provision.py`. ~4 prompts end-to-end.
 
 ## Layer 5 — `sharktopus.cli` — DONE (unreleased)
 
 `sharktopus` entry point mirrors CONVECT's `download_batch_cli.py` flag
 names, reads INI config via `sharktopus.config`, and runs everything
 through `fetch_batch`. Adds `--list-sources`, `--availability`,
-`--quota {aws,gcloud}`, and `--setup {gcloud,aws}` for introspection
-and bootstrap.
+`--quota {aws,gcloud,azure}`, and `--setup {gcloud,aws,azure}` for
+introspection and bootstrap.

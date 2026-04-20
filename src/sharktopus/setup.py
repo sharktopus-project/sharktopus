@@ -380,8 +380,13 @@ def _setup_azure() -> int:
     if show.returncode != 0:
         print()
         print("[2/3] Azure CLI has no active subscription.")
-        print("      Run in a terminal (device-code flow, no browser required):")
-        print(f"          {az} login --use-device-code")
+        print("      Sign in via Microsoft's browser page — your password")
+        print("      is typed at microsoft.com, never in this terminal.")
+        print("      The CLI keeps only a short-lived refresh token in ~/.azure/.")
+        print()
+        print("      Run in a terminal:")
+        print(f"          {az} login                    # opens default browser")
+        print(f"          {az} login --use-device-code  # headless / SSH")
         try:
             input("      Press ENTER when login completes... ")
         except (KeyboardInterrupt, EOFError):

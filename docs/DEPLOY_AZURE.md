@@ -28,16 +28,28 @@ contract Cloud Run uses, so we **reuse the same image** —
 image with `azure-storage-blob` swapped for `google-cloud-storage` in
 the requirements. wgrib2 issue gone.
 
-## Authentication — no password touches sharktopus
+## Authentication — your password never touches sharktopus
 
-`provision.py` uses `azure-identity`'s `DefaultAzureCredential`, which
-honours (in order) env vars, managed identity, the Azure CLI session,
-and a few SDK-specific paths. **The default path is `az login`** — the
-CLI keeps the refresh token in `~/.azure/`, sharktopus never sees a
-secret. Revoke at <https://myaccount.microsoft.com/> any time.
+**Always prefer the browser/device-code flow (Option A below).** You
+type your Azure password on Microsoft's own sign-in page, in your own
+browser. sharktopus only ever sees the short-lived **refresh token**
+that the Azure CLI writes to `~/.azure/` afterwards — never the
+password. You can inspect or revoke that token at any time at
+<https://myaccount.microsoft.com/>.
 
-For CI, `AZURE_TENANT_ID` + `AZURE_CLIENT_ID` + `AZURE_CLIENT_SECRET`
-(service principal) skip the CLI entirely.
+Under the hood, `provision.py` uses `azure-identity`'s
+`DefaultAzureCredential`, which looks for credentials in this order:
+
+1. Environment variables (`AZURE_CLIENT_ID` / `_SECRET` / `_TENANT_ID`).
+2. Managed identity (when running inside Azure itself).
+3. **The Azure CLI session written by `az login`** ← default for humans.
+4. A few SDK-specific fallback paths.
+
+Option B (service principal via env vars) exists purely for **CI
+runners and sudo-less shared hosts** — situations where there's no
+browser and no way to keep a CLI session around. A human on their own
+laptop should never need Option B. If a tutorial tells you to paste
+a password into a terminal to use sharktopus, it's wrong — ask.
 
 ## Prerequisites
 
@@ -60,9 +72,13 @@ For CI, `AZURE_TENANT_ID` + `AZURE_CLIENT_ID` + `AZURE_CLIENT_SECRET`
 
 Two supported auth paths. Only one is needed.
 
-### Option A — Azure CLI (recommended, interactive)
+### Option A — Azure CLI + browser sign-in (recommended)
 
-Requires sudo **once** for the install:
+**This is the path you want 99% of the time.** You sign in on
+Microsoft's own website; no secret ever touches this repo or your
+terminal history.
+
+Install the CLI (sudo **once**):
 
 ```bash
 curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash    # Debian/Ubuntu
@@ -71,16 +87,23 @@ brew update && brew install azure-cli                     # macOS
 
 Other distros: <https://learn.microsoft.com/cli/azure/install-azure-cli>.
 
-Then:
+Then pick one sign-in flow:
 
 ```bash
-az version                         # 2.50+ recommended
-az login --use-device-code         # headless-friendly
-az account set --subscription <ID> # if you have multiple
+az login                           # opens the default browser
+az login --use-device-code         # prints a code + URL (headless / SSH)
 ```
 
-`DefaultAzureCredential` in `provision.py` will pick up this session
-automatically — no env vars to set.
+Both flows send you to `microsoft.com`, you type your Azure password
+**there**, Microsoft redirects back with a refresh token, and the CLI
+writes that token to `~/.azure/`. If you have multiple subscriptions:
+
+```bash
+az account set --subscription <ID>
+```
+
+`DefaultAzureCredential` in `provision.py` picks up the CLI session
+automatically. **No env vars, no secrets in the shell.**
 
 ### Option B — Service principal (no sudo, headless CI, shared hosts)
 

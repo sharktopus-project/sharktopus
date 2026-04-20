@@ -26,7 +26,9 @@ from pathlib import Path
 
 log = logging.getLogger("sharktopus-gcloud-deploy")
 
-SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+SCOPES = [
+    "https://www.googleapis.com/auth/cloud-platform",
+]
 
 DEFAULT_OAUTH_CLIENT = Path(__file__).resolve().parent / "oauth_client.json"
 TOKEN_CACHE = Path.home() / ".cache" / "sharktopus" / "gcloud_token.json"

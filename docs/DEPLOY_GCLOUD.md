@@ -35,10 +35,18 @@ pre-seeded ADC file.
 `provision.py --auth browser` launches the standard Google "installed
 app" flow: a random localhost port listens for the OAuth callback,
 your browser opens against `accounts.google.com`, you pick an account,
-consent to the `cloud-platform` scope, and sharktopus caches the
-refresh token at `~/.cache/sharktopus/gcloud_token.json` (0o600).
-Subsequent deploys skip the browser — the cached token refreshes
-silently.
+consent to the `cloud-platform`, `openid`, and `email` scopes, and
+sharktopus caches the refresh token at
+`~/.cache/sharktopus/gcloud_token.json` (0o600). Subsequent deploys
+skip the browser — the cached token refreshes silently.
+
+**Bonus when combined with `--authenticated-only`:** the deploy
+automatically creates a `sharktopus-invoker` service account, grants
+it `roles/run.invoker` on the Cloud Run service, and grants *your*
+user `roles/iam.serviceAccountTokenCreator` on the SA. The client
+then invokes the authenticated service using only the cached browser
+OAuth token — no downloaded key, no gcloud CLI. The deploy prints
+the `SHARKTOPUS_GCLOUD_INVOKER_SA` env var to export.
 
 > **Unverified app warning.** Until Google finishes verifying the
 > sharktopus OAuth app, the consent screen shows a yellow "Google
@@ -332,10 +340,24 @@ sharktopus.fetch_batch(
 )
 ```
 
-With `--authenticated-only`, the client mints an ID token automatically
-via ADC (`google.oauth2.id_token.fetch_id_token`). Make sure the
-calling account has `roles/run.invoker` on the service — grant to
-additional principals with:
+With `--authenticated-only`, the client mints an audience-scoped ID
+token in one of four ways (resolved in order):
+
+1. `SHARKTOPUS_GCLOUD_ID_TOKEN` — explicit token override.
+2. ADC / metadata server via `google.oauth2.id_token.fetch_id_token`
+   — service-account ADC, GCE / Cloud Run / GKE.
+3. **Browser-OAuth cache + SA impersonation** — if you deployed via
+   `--auth browser`, the client reads
+   `~/.cache/sharktopus/gcloud_token.json`, impersonates
+   `sharktopus-invoker@<project>.iam.gserviceaccount.com` (via the
+   `generateIdToken` IAM API), and mints the audience-scoped token.
+   No gcloud CLI required. Requires
+   `SHARKTOPUS_GCLOUD_INVOKER_SA` or `GOOGLE_CLOUD_PROJECT` to be
+   set.
+4. `gcloud auth print-identity-token` — last-resort fallback when the
+   gcloud CLI is present and user-ADC is the only credential source.
+
+Grant additional principals `roles/run.invoker` with:
 
 ```bash
 ~/google-cloud-sdk/bin/gcloud run services add-iam-policy-binding sharktopus-crop \
@@ -343,6 +365,11 @@ additional principals with:
     --role="roles/run.invoker" \
     --region=us-central1 --project=YOUR-PROJECT-ID
 ```
+
+Or — for the browser-OAuth path — grant them
+`roles/iam.serviceAccountTokenCreator` on the `sharktopus-invoker` SA
+instead, and they impersonate from their own machine with only a
+browser OAuth token.
 
 ## Step 6 — Monitor quota and cost
 

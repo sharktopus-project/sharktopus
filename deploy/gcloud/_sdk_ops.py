@@ -302,3 +302,172 @@ def _grant_invoker_allusers(services_client, full_name: str) -> None:
         request=iam_policy_pb2.SetIamPolicyRequest(resource=full_name, policy=policy),
     )
     log.info("Granted roles/run.invoker to allUsers (public ingress)")
+
+
+# ---------------------------------------------------------------------------
+# Browser-OAuth invoker: service account + token-creator binding
+# ---------------------------------------------------------------------------
+
+INVOKER_SA_ID = "sharktopus-invoker"
+
+
+def ensure_invoker_sa_sdk(
+    credentials, project: str, region: str, service_name: str, user_email: str,
+) -> str:
+    """Wire the per-user browser-OAuth invoker path.
+
+    Creates the ``sharktopus-invoker`` service account (idempotent),
+    grants it ``roles/run.invoker`` on the Cloud Run service, then
+    grants *user_email* ``roles/iam.serviceAccountTokenCreator`` on
+    the SA itself so the client can impersonate it to mint ID tokens
+    with the right audience.
+
+    Returns the SA email. The design is: the end user pays only for
+    their own Cloud Run invocations (authenticated-only, billed to
+    their project), and they authenticate with nothing more than a
+    browser OAuth token. No service account JSON is ever downloaded.
+    """
+    sa_email = _ensure_invoker_service_account(credentials, project)
+    _grant_invoker_on_service(credentials, project, region, service_name, sa_email)
+    _grant_token_creator_on_sa(credentials, project, sa_email, user_email)
+    return sa_email
+
+
+def _ensure_invoker_service_account(credentials, project: str) -> str:
+    """Create the ``sharktopus-invoker`` SA via IAM REST (idempotent)."""
+    from google.auth.transport.requests import AuthorizedSession
+
+    sa_email = f"{INVOKER_SA_ID}@{project}.iam.gserviceaccount.com"
+    session = AuthorizedSession(credentials)
+
+    get_url = (
+        f"https://iam.googleapis.com/v1/projects/{project}"
+        f"/serviceAccounts/{sa_email}"
+    )
+    r = session.get(get_url, timeout=30)
+    if r.status_code == 200:
+        log.info("Service account %s already exists", sa_email)
+        return sa_email
+    if r.status_code != 404:
+        raise RuntimeError(
+            f"IAM SA lookup failed: {r.status_code} {r.text[:300]}"
+        )
+
+    create_url = f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts"
+    body = {
+        "accountId": INVOKER_SA_ID,
+        "serviceAccount": {
+            "displayName": "sharktopus Cloud Run invoker",
+            "description": (
+                "Invokes the sharktopus-crop Cloud Run service. "
+                "End users impersonate this SA via browser OAuth — no key."
+            ),
+        },
+    }
+    r = session.post(create_url, json=body, timeout=30)
+    if r.status_code >= 300:
+        raise RuntimeError(
+            f"IAM SA create failed: {r.status_code} {r.text[:300]}"
+        )
+    log.info("Created service account %s", sa_email)
+    return sa_email
+
+
+def _grant_invoker_on_service(
+    credentials, project: str, region: str, service_name: str, sa_email: str,
+) -> None:
+    """Grant *sa_email* roles/run.invoker on the Cloud Run service (idempotent)."""
+    from google.cloud import run_v2
+    from google.iam.v1 import iam_policy_pb2, policy_pb2
+
+    client = run_v2.ServicesClient(credentials=credentials)
+    full_name = (
+        f"projects/{project}/locations/{region}/services/{service_name}"
+    )
+    member = f"serviceAccount:{sa_email}"
+
+    policy = client.get_iam_policy(
+        request=iam_policy_pb2.GetIamPolicyRequest(resource=full_name),
+    )
+    for b in policy.bindings:
+        if b.role == "roles/run.invoker" and member in b.members:
+            log.info("%s already has run.invoker on %s", sa_email, service_name)
+            return
+    policy.bindings.append(
+        policy_pb2.Binding(role="roles/run.invoker", members=[member]),
+    )
+    client.set_iam_policy(
+        request=iam_policy_pb2.SetIamPolicyRequest(
+            resource=full_name, policy=policy,
+        ),
+    )
+    log.info("Granted run.invoker to %s on %s", sa_email, service_name)
+
+
+def _grant_token_creator_on_sa(
+    credentials, project: str, sa_email: str, user_email: str,
+) -> None:
+    """Let *user_email* impersonate *sa_email* (idempotent).
+
+    Binds ``roles/iam.serviceAccountTokenCreator`` on the SA resource
+    itself, so calls to ``generateIdToken`` against *sa_email* with
+    the user's OAuth token succeed.
+    """
+    from google.auth.transport.requests import AuthorizedSession
+
+    session = AuthorizedSession(credentials)
+    base = (
+        f"https://iam.googleapis.com/v1/projects/{project}"
+        f"/serviceAccounts/{sa_email}"
+    )
+    # getIamPolicy on the SA resource.
+    r = session.post(f"{base}:getIamPolicy", json={}, timeout=30)
+    if r.status_code >= 300:
+        raise RuntimeError(
+            f"SA getIamPolicy failed: {r.status_code} {r.text[:300]}"
+        )
+    policy = r.json()
+    member = f"user:{user_email}"
+    role = "roles/iam.serviceAccountTokenCreator"
+
+    bindings = policy.get("bindings", [])
+    for b in bindings:
+        if b.get("role") == role and member in b.get("members", []):
+            log.info("%s already has tokenCreator on %s", user_email, sa_email)
+            return
+    bindings.append({"role": role, "members": [member]})
+    policy["bindings"] = bindings
+
+    r = session.post(
+        f"{base}:setIamPolicy", json={"policy": policy}, timeout=30,
+    )
+    if r.status_code >= 300:
+        raise RuntimeError(
+            f"SA setIamPolicy failed: {r.status_code} {r.text[:300]}"
+        )
+    log.info("Granted tokenCreator on %s to %s", sa_email, user_email)
+
+
+def fetch_userinfo_email(credentials) -> str | None:
+    """Return the OAuth user's email via the userinfo endpoint.
+
+    Requires the ``openid email`` scopes to have been granted during
+    the OAuth flow. Returns ``None`` on any failure — callers should
+    treat that as "no user email available; caller must pass it
+    explicitly".
+    """
+    from google.auth.transport.requests import AuthorizedSession
+
+    try:
+        session = AuthorizedSession(credentials)
+        r = session.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo", timeout=30,
+        )
+        if r.status_code != 200:
+            log.warning("userinfo endpoint returned %d: %s",
+                        r.status_code, r.text[:200])
+            return None
+        return r.json().get("email")
+    except Exception as e:  # noqa: BLE001
+        log.warning("userinfo fetch failed: %s", e)
+        return None

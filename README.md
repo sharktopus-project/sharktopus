@@ -321,8 +321,13 @@ URL resolution order at client side: explicit `service_url=` kwarg →
 `SHARKTOPUS_GCLOUD_URL` env → ADC-based discovery on
 `run.googleapis.com`. Auth: the Cloud Run service accepts
 unauthenticated requests by default (still TLS-protected); pass
-`--authenticated-only` at deploy time to require ID tokens — the
-client then mints audience-scoped OIDC tokens via ADC automatically.
+`--authenticated-only` at deploy time to require ID tokens. The
+client mints audience-scoped OIDC tokens in four ways (tried in
+order): explicit `SHARKTOPUS_GCLOUD_ID_TOKEN` env → service-account
+ADC / metadata server → browser-OAuth cache + invoker-SA
+impersonation (when deployed via `--auth browser`,
+`SHARKTOPUS_GCLOUD_INVOKER_SA` drives the impersonation target) →
+`gcloud auth print-identity-token` CLI fallback.
 
 > The container image is published by the project's CI workflow to
 > `ghcr.io/sharktopus-project/sharktopus:cloudrun-latest`; Cloud Run

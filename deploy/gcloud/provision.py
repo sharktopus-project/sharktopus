@@ -132,6 +132,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--user-email",
+        default=os.environ.get("SHARKTOPUS_GCLOUD_USER_EMAIL"),
+        help=(
+            "Google account email to grant serviceAccountTokenCreator on "
+            "the invoker SA (browser + authenticated-only mode). Skipped "
+            "if absent — set SHARKTOPUS_GCLOUD_USER_EMAIL or pass this flag."
+        ),
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Print what would happen without touching GCloud.",
     )
@@ -246,6 +255,7 @@ def ensure_apis(project: str) -> None:
     apis = [
         "run.googleapis.com",
         "storage.googleapis.com",
+        "iam.googleapis.com",
         "iamcredentials.googleapis.com",
         "artifactregistry.googleapis.com",
     ]
@@ -393,6 +403,7 @@ def _deploy_sdk(credentials, args, bucket: str) -> str:
     apis = [
         "run.googleapis.com",
         "storage.googleapis.com",
+        "iam.googleapis.com",
         "iamcredentials.googleapis.com",
         "artifactregistry.googleapis.com",
     ]
@@ -415,6 +426,31 @@ def _deploy_sdk(credentials, args, bucket: str) -> str:
         min_instances=args.min_instances, max_instances=20,
         allow_unauthenticated=not args.authenticated_only,
     )
+
+    # Browser-OAuth path: the user just deployed an authenticated-only
+    # service in their own billing account. Wire up a per-user invoker
+    # service account so the client can impersonate it with only a
+    # browser OAuth token — no downloaded key, no gcloud CLI.
+    if args.auth == "browser" and args.authenticated_only:
+        user_email = args.user_email
+        if not user_email:
+            log.warning(
+                "No --user-email / SHARKTOPUS_GCLOUD_USER_EMAIL set. Skipping "
+                "invoker SA wiring. Re-run with --user-email YOU@example.com "
+                "to enable the pure browser-OAuth client path.",
+            )
+        else:
+            sa_email = _sdk_ops.ensure_invoker_sa_sdk(
+                credentials, args.project, args.region, SERVICE_NAME, user_email,
+            )
+            log.info("Invoker SA wired: %s", sa_email)
+            log.info(
+                "Clients can now invoke with only browser OAuth. Export:\n"
+                "    export SHARKTOPUS_GCLOUD_URL=%s\n"
+                "    export SHARKTOPUS_GCLOUD_INVOKER_SA=%s",
+                url, sa_email,
+            )
+
     return url
 
 

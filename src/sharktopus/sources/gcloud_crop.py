@@ -188,7 +188,12 @@ def _id_token_for(audience: str) -> str | None:
     2. ``google.oauth2.id_token.fetch_id_token`` — works with the
        metadata server (GCE / Cloud Run / GKE) and with service-account
        ADC. This is the common production path.
-    3. ``gcloud auth print-identity-token`` — required fallback for
+    3. Browser-OAuth cache + invoker-SA impersonation — used when the
+       service was deployed via ``provision.py --auth browser``. Reads
+       the user's cached OAuth token and impersonates
+       ``sharktopus-invoker@<project>.iam.gserviceaccount.com`` to mint
+       an audience-scoped ID token. No gcloud CLI required.
+    4. ``gcloud auth print-identity-token`` — required fallback for
        **user-type ADC** (`gcloud auth application-default login`),
        which the ``google-auth`` library cannot mint ID tokens for.
        Typical dev / laptop scenario.
@@ -204,6 +209,14 @@ def _id_token_for(audience: str) -> str | None:
 
         req = gat.Request()
         return id_token_mod.fetch_id_token(req, audience)
+    except Exception:
+        pass
+
+    try:
+        from .._gcloud_auth import mint_id_token_via_browser_cache
+        tok = mint_id_token_via_browser_cache(audience)
+        if tok:
+            return tok
     except Exception:
         pass
 

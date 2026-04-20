@@ -10,16 +10,21 @@
 # ``sharktopus deploy gcloud`` pull the image from there into their own
 # Artifact Registry / deploy to Cloud Run — no local Docker required.
 
-FROM public.ecr.aws/amazonlinux/amazonlinux:2 AS builder
+# Builder and runtime share the same Debian (bookworm) base so the
+# wgrib2 binary's libgfortran / libgomp ABI matches what the slim
+# runtime ships. Mixing amazonlinux:2 (libgfortran.so.4) with Debian
+# bookworm (libgfortran.so.5) silently produced a runtime loader
+# failure — single-base avoids it.
+FROM python:3.11-slim-bookworm AS builder
 
-RUN yum -y update && \
-    yum -y install \
-        gcc gcc-gfortran make wget tar gzip \
-        zlib-devel libpng-devel jasper-devel libjpeg-turbo-devel && \
-    yum clean all
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential gfortran wget ca-certificates \
+        zlib1g-dev libpng-dev libjpeg-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# Same tar shim as the AWS image: wgrib2's sub-makefiles choke on
-# unknown uid/gid in the sources; force --no-same-owner globally.
+# wgrib2's sub-makefiles (proj-4.8.0, g2clib, etc.) invoke tar and
+# choke on source-archive uid/gid — same shim used on the AWS image.
 RUN mv /usr/bin/tar /usr/bin/tar_bin && \
     printf '#!/bin/sh\nexec /usr/bin/tar_bin --no-same-owner "$@"\n' > /usr/bin/tar && \
     chmod +x /usr/bin/tar
@@ -31,13 +36,16 @@ RUN wget -q https://ftp.cpc.ncep.noaa.gov/wd51we/wgrib2/wgrib2.tgz && \
     tar -xzf wgrib2.tgz && rm -f wgrib2.tgz
 
 WORKDIR /tmp/grib2
-RUN sed -i -e 's/^USE_AEC=1/USE_AEC=0/' -e 's/^USE_OPENJPEG=1/USE_OPENJPEG=0/' makefile && \
+RUN sed -i -e 's/^USE_AEC=1/USE_AEC=0/' \
+           -e 's/^USE_OPENJPEG=1/USE_OPENJPEG=0/' \
+           -e 's/^USE_JASPER=1/USE_JASPER=0/' \
+           makefile && \
     make
 
 # -----------------------------------------------------------------------
-# Runtime: python:3.11-slim + wgrib2 + Flask wrapper
+# Runtime: python:3.11-slim-bookworm + wgrib2 + Flask wrapper
 # -----------------------------------------------------------------------
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # wgrib2 runtime needs libgfortran + libgomp; add curl only for
 # debugging / healthcheck convenience.

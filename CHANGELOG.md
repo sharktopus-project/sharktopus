@@ -5,6 +5,56 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **GCloud cloud-side cropping** via a Cloud Run service
+  (`sharktopus.sources.gcloud_crop`). Parallel path to `aws_crop`: a
+  container image built from `deploy/gcloud/Dockerfile` runs wgrib2
+  inside Cloud Run, reads GFS byte-ranges from the anonymous
+  `global-forecast-system` GCS mirror, and returns only the cropped
+  bytes. Two delivery modes, auto-selected:
+  - `inline` — base64-encoded GRIB2 in the HTTP response (cap 20 MB,
+    well under Cloud Run's 32 MB ceiling).
+  - `gcs` — service uploads to a private bucket under `crops/`, returns
+    a V4 signed GET URL valid for 1 h, client downloads then deletes
+    the object (retained when `SHARKTOPUS_RETAIN_GCS=true`).
+- **Cloud Run free-tier quota tracking** (`sharktopus.cloud.gcloud_quota`)
+  shares the JSON cache with the AWS tracker, keyed by provider name
+  (`gcloud`). Tracks three dimensions — invocations (free: 2M/mo),
+  vCPU-seconds (180k/mo), GiB-seconds (360k/mo) — with the same
+  `SHARKTOPUS_LOCAL_CROP` / `SHARKTOPUS_ACCEPT_CHARGES` /
+  `SHARKTOPUS_MAX_SPEND_USD` env gates, plus `SHARKTOPUS_RETAIN_GCS`
+  for kept bucket objects.
+- **GCloud one-shot provisioning** (`deploy/gcloud/provision.py`)
+  enables run/storage/iamcredentials APIs, creates the crops bucket
+  with a 7-day lifecycle on `crops/`, deploys the Cloud Run service
+  pulling `ghcr.io/sharktopus-project/sharktopus:cloudrun-latest`
+  directly from GHCR (no Artifact Registry mirror), and prints the
+  service URL to export as `SHARKTOPUS_GCLOUD_URL`. `--min-instances N`
+  opts into warm instances for cold-start-free invocations.
+- **Matrix CI image build.** `.github/workflows/build-image.yml` now
+  builds two variants (`lambda` + `cloudrun`) with scope-separated
+  buildx cache and pushes tagged images to GHCR on every push to
+  `main`.
+- **CLI `--quota gcloud`** dispatches to the Cloud Run tracker;
+  `--quota aws` continues to dispatch to the Lambda tracker. Same
+  interface, different provider under the hood.
+- **29 new tests** (`test_gcloud_quota.py` + `test_sources_gcloud_crop.py`)
+  covering the three-dim free-tier gate, payload construction, URL
+  discovery fallback chain, inline/gcs response handling, retention
+  env, and the top-level `quota_report("gcloud")` dispatcher.
+- `DEFAULT_PRIORITY` extended to
+  `("aws_crop", "gcloud_crop", "gcloud", "aws", "azure", "rda", "nomads")`.
+  `gcloud_crop.supports(date)` requires both a live `requests` import
+  and a discoverable service URL, so hosts without GCloud configured
+  silently drop it from auto-priority.
+
+### Fixed
+- `deploy/gcloud/Dockerfile`: builder and runtime stages now share the
+  `python:3.11-slim-bookworm` base so the wgrib2 binary's
+  `libgfortran.so.5` matches what the runtime ships. Prior two-stage
+  mix (amazonlinux:2 builder + Debian runtime) produced a loader
+  failure at crop time (`libgfortran.so.4: cannot open shared
+  object file`) — caught by local smoke test.
+
 - **AWS cloud-side cropping** via the `sharktopus` Lambda
   (`sharktopus.sources.aws_crop`). Invokes a container-image Lambda
   that does the byte-range fetch + wgrib2 crop server-side and returns

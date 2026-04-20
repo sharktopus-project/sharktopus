@@ -4,15 +4,17 @@ Download and crop GFS forecast data. Local sources first (NOMADS, AWS Open Data,
 Google Cloud, Azure Blob); serverless cloud recortador is an optional second
 layer for free-tier distributed cropping.
 
-> **Status (2026-04-19): pre-alpha, Layer 3 partial.** Seven sources
-> registered: `aws_crop` (AWS Lambda cloud-side crop, credential- and
-> quota-gated), `nomads`, `nomads_filter`, `aws`, `gcloud`, `azure`,
-> `rda`. Full-file sources share one download + local-crop recipe;
-> `nomads_filter` and `aws_crop` do server-side cropping.
-> `DEFAULT_PRIORITY` now prefers cloud-side crop first when AWS
-> credentials are resolvable; otherwise falls back to the plain cloud
-> mirrors. See `docs/ROADMAP.md` for the layered build plan and
-> `COMMUNICATION.md` for the phase-by-phase cloud-crop rollout.
+> **Status (2026-04-19): pre-alpha, Layer 3 covers AWS + GCloud.** Eight
+> sources registered: `aws_crop` (AWS Lambda cloud-side crop, credential-
+> and quota-gated), `gcloud_crop` (GCloud Cloud Run cloud-side crop,
+> ADC- and quota-gated), `nomads`, `nomads_filter`, `aws`, `gcloud`,
+> `azure`, `rda`. Full-file sources share one download + local-crop
+> recipe; `nomads_filter`, `aws_crop`, and `gcloud_crop` do server-side
+> cropping. `DEFAULT_PRIORITY` tries cloud-side crop first (AWS then
+> GCloud) when credentials are resolvable; otherwise falls back to the
+> plain cloud mirrors. Azure Functions crop is fase 2. See
+> `docs/ROADMAP.md` for the layered build plan and `COMMUNICATION.md`
+> for the phase-by-phase cloud-crop rollout.
 
 ## Install
 
@@ -143,11 +145,12 @@ on typos.
 
 ### Sources (Layer 1)
 
-Seven sources, all registered at import time:
+Eight sources, all registered at import time:
 
 | Name            | Endpoint                                            | Earliest   | Retention  | Strategies                       |
 |-----------------|-----------------------------------------------------|------------|------------|----------------------------------|
 | `aws_crop`      | `sharktopus` AWS Lambda (user's own account)        | 2021-02-27 | indefinite | **Cloud-side crop** (inline / S3 presigned) — credential-gated |
+| `gcloud_crop`   | `sharktopus-crop` Cloud Run service (user's own project) | 2021-01-01 | indefinite | **Cloud-side crop** (inline / GCS signed URL) — ADC-gated |
 | `nomads`        | `nomads.ncep.noaa.gov` (origin)                     | rolling    | ~10 days   | Full download / **idx byte-range** |
 | `nomads_filter` | `nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl`   | rolling    | ~10 days   | Server-side subset               |
 | `aws`           | `noaa-gfs-bdp-pds.s3.amazonaws.com`                 | 2021-02-27 | indefinite | Full download / **idx byte-range** |
@@ -212,15 +215,16 @@ sharktopus --availability 20240101          # which mirrors can serve this date
 ```
 
 Default priority when the caller does not pass `priority=`:
-`aws_crop > gcloud > aws > azure > rda > nomads` — cloud-side crop
-first when AWS credentials are configured (server-side wgrib2 returns
-only the cropped bytes), plain cloud mirrors next for their throughput
-and stable retention, NOMADS last as a rate-limited origin fallback.
-`aws_crop` is skipped silently from auto-priority when credentials are
-absent or the free-tier quota is exhausted — it never raises a
-fatal error, the next source just takes over. `nomads_filter` is
-**opt-in** because its value comes from server-side variable/level
-subsetting: include it in `priority=` explicitly when you want it.
+`aws_crop > gcloud_crop > gcloud > aws > azure > rda > nomads` —
+cloud-side crop first when credentials are configured (server-side
+wgrib2 returns only the cropped bytes), plain cloud mirrors next for
+their throughput and stable retention, NOMADS last as a rate-limited
+origin fallback. `aws_crop` and `gcloud_crop` are skipped silently
+from auto-priority when credentials/ADC are absent or the free-tier
+quota is exhausted — they never raise a fatal error, the next source
+just takes over. `nomads_filter` is **opt-in** because its value comes
+from server-side variable/level subsetting: include it in `priority=`
+explicitly when you want it.
 
 **Cloud-side crop (`aws_crop`).** When AWS credentials are resolvable
 (env vars, `~/.aws/credentials`, or instance profile) and the local
@@ -262,6 +266,60 @@ your AWS account is a one-shot provisioning step handled by
 the cloud-crop rollout; until it lands, users can point at an
 existing Lambda of theirs via the `lambda_name=` kwarg on
 `aws_crop.fetch_step`).
+
+**Cloud-side crop (`gcloud_crop`).** Parallel path for users on GCloud:
+a Cloud Run service (`sharktopus-crop`) does the byte-range fetch from
+the anonymous `global-forecast-system` GCS mirror and runs
+`wgrib2 -small_grib` inside the container, returning only the cropped
+bytes. Two delivery modes, auto-selected:
+
+- **Inline** — base64-encoded GRIB2 in the JSON response (Cloud Run
+  caps the response at 32 MB; sharktopus uses inline for crops ≤ 20 MB).
+- **GCS signed URL** — service uploads to a short-lived `crops/` prefix
+  in a private bucket, returns a V4 signed GET URL, client downloads
+  and then deletes the object (kept when `SHARKTOPUS_RETAIN_GCS=true`).
+  Used automatically for larger crops.
+
+Quota policy mirrors AWS: Cloud Run's always-free tier is 2M requests,
+180k vCPU-seconds, and 360k GiB-seconds per month; the same
+`SHARKTOPUS_LOCAL_CROP` / `SHARKTOPUS_ACCEPT_CHARGES` /
+`SHARKTOPUS_MAX_SPEND_USD` env vars gate the decision, with one extra
+switch `SHARKTOPUS_RETAIN_GCS` to keep intermediate bucket objects.
+The counter is the same JSON file as AWS, keyed by provider name
+(`gcloud` vs `aws`). Inspect it from the CLI:
+
+```bash
+sharktopus --quota aws       # AWS Lambda invocations / GB-s / spend
+sharktopus --quota gcloud    # Cloud Run invocations / vCPU-s / GiB-s / spend
+```
+
+One-shot provisioning in your GCloud project:
+
+```bash
+# Deploys sharktopus-crop to Cloud Run (us-central1), creates the
+# crops bucket with a 7-day lifecycle, and prints the service URL
+# to export as SHARKTOPUS_GCLOUD_URL for clients.
+python deploy/gcloud/provision.py --project my-project
+
+# Auto-discovery also works: when SHARKTOPUS_GCLOUD_URL is unset the
+# client queries run.googleapis.com for the service named
+# sharktopus-crop in the caller's default project/region.
+```
+
+URL resolution order at client side: explicit `service_url=` kwarg →
+`SHARKTOPUS_GCLOUD_URL` env → ADC-based discovery on
+`run.googleapis.com`. Auth: the Cloud Run service accepts
+unauthenticated requests by default (still TLS-protected); pass
+`--authenticated-only` at deploy time to require ID tokens — the
+client then mints audience-scoped OIDC tokens via ADC automatically.
+
+> The container image is published by the project's CI workflow to
+> `ghcr.io/sharktopus-project/sharktopus:cloudrun-latest`; Cloud Run
+> pulls it directly from GHCR with no Artifact Registry mirror
+> needed. **First-time setup:** the package is uploaded as private
+> on the first push — make it public once via *GitHub → org
+> packages → sharktopus → package settings → change visibility*
+> before running `deploy/gcloud/provision.py`.
 
 **WRF-canonical defaults.** When `nomads_filter` is in the priority
 list and the caller doesn't pass `variables` / `levels`,
@@ -429,8 +487,8 @@ next starts.
 | 0. grib utilities | `sharktopus.grib` | ✅ done | no | no |
 | 1. sources (NOMADS/AWS/GCloud/Azure/RDA) | `sharktopus.sources.*` | ✅ done | yes | no |
 | 2. orchestrator `fetch_batch()` | `sharktopus.batch` | ✅ done | yes | no |
-| 3. cloud invoke (AWS done; GCloud/Azure fase 2) | `sharktopus.sources.aws_crop`, `sharktopus.aws_quota` | 🟡 partial | yes | yes |
-| 4. cloud deploy (AWS in progress) | `sharktopus.deploy` | 🟡 in progress | yes | yes |
+| 3. cloud invoke (AWS + GCloud done; Azure fase 2) | `sharktopus.sources.aws_crop`, `sharktopus.sources.gcloud_crop`, `sharktopus.cloud.{aws,gcloud}_quota` | 🟡 partial | yes | yes |
+| 4. cloud deploy (AWS + GCloud done; Azure fase 2) | `deploy/{aws,gcloud}/provision.py` | 🟡 partial | yes | yes |
 | 5. CLI + interactive menu | `sharktopus.cli` | ✅ done | — | — |
 
 See `docs/ROADMAP.md` for details and validation criteria per layer.

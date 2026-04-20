@@ -16,3 +16,8 @@ htmlcov/
 # Bundled wgrib2 binary — dropped here at wheel-build time, never committed.
 src/sharktopus/_bin/wgrib2
 src/sharktopus/_bin/wgrib2.exe
+
+# OAuth client JSON (Desktop app secret — non-secret by design per Google, but
+# keep out of the public tree until verification lands).
+deploy/gcloud/oauth_client.json
+client_secret_*.apps.googleusercontent.com.json

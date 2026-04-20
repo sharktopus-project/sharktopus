@@ -31,6 +31,12 @@ Auth + execution modes (``--auth``):
   ``GOOGLE_APPLICATION_CREDENTIALS`` (service account JSON), then the
   ADC file at ``~/.config/gcloud/application_default_credentials.json``,
   then the GCE metadata server.
+* ``browser`` — pure-Python; no ``gcloud`` binary and no service
+  account key needed. Pops a browser window against the sharktopus
+  Desktop OAuth client, exchanges the code on ``localhost:0`` for a
+  refresh token, and caches it at
+  ``~/.cache/sharktopus/gcloud_token.json``. Smoothest path for
+  one-off installs.
 
 Target project comes from ``--project`` / ``GOOGLE_CLOUD_PROJECT`` or
 (in ``sdk`` mode) from the credential itself when unambiguous.
@@ -39,8 +45,9 @@ Usage::
 
     python deploy/gcloud/provision.py \\
         --project my-proj [--region us-central1] \\
-        [--auth {cli,sdk}] \\
+        [--auth {cli,sdk,browser}] \\
         [--service-account-json /path/to/key.json] \\
+        [--oauth-client-json /path/to/oauth_client.json] \\
         [--image-tag cloudrun-latest] [--min-instances 0]
 """
 
@@ -82,18 +89,28 @@ def main() -> int:
     parser.add_argument("--region", default=DEFAULT_REGION)
     parser.add_argument(
         "--auth",
-        choices=("cli", "sdk"),
+        choices=("cli", "sdk", "browser"),
         default=os.environ.get("SHARKTOPUS_GCLOUD_AUTH", "cli"),
         help=(
             "'cli' (default) shells out to gcloud for every step (requires "
-            "the gcloud binary). 'sdk' is pure-Python — uses google-cloud-* "
-            "SDKs with credentials from GOOGLE_APPLICATION_CREDENTIALS or ADC."
+            "the gcloud binary). 'sdk' is pure-Python with credentials from "
+            "GOOGLE_APPLICATION_CREDENTIALS or ADC. 'browser' is pure-Python "
+            "with a browser OAuth flow — no gcloud, no service account."
         ),
     )
     parser.add_argument(
         "--service-account-json",
         default=os.environ.get("SHARKTOPUS_GCLOUD_SA_JSON"),
         help="Path to a service account JSON key (sdk mode only).",
+    )
+    parser.add_argument(
+        "--oauth-client-json",
+        default=os.environ.get("SHARKTOPUS_GCLOUD_OAUTH_CLIENT"),
+        help=(
+            "Path to a Desktop OAuth client JSON (browser mode only). "
+            "Defaults to deploy/gcloud/oauth_client.json next to this "
+            "script."
+        ),
     )
     parser.add_argument(
         "--image-tag", default=IMAGE_TAG,
@@ -120,30 +137,14 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # In sdk mode, the credential can carry a project hint — fall back to
-    # it if --project wasn't passed.
-    creds = None
-    if args.auth == "sdk":
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import _sdk_ops  # type: ignore[import-not-found]
-        resolved = _sdk_ops.resolve_credentials(args.service_account_json)
-        creds = resolved.credentials
-        log.info("SDK auth source: %s (project hint=%s)",
-                 resolved.source, resolved.project_hint)
-        if not args.project:
-            args.project = resolved.project_hint
-
-    if not args.project:
-        raise SystemExit(
-            "error: --project (or GOOGLE_CLOUD_PROJECT) must be set"
-        )
-
-    bucket = os.environ.get(
-        "SHARKTOPUS_GCS_BUCKET", f"sharktopus-crops-{args.project}",
-    )
-    image = f"{GHCR_IMAGE}:{args.image_tag}"
-
+    # Dry-run short-circuits before any network / OAuth — keep it cheap.
     if args.dry_run:
+        if not args.project:
+            args.project = "<project-from-credential>"
+        bucket = os.environ.get(
+            "SHARKTOPUS_GCS_BUCKET", f"sharktopus-crops-{args.project}",
+        )
+        image = f"{GHCR_IMAGE}:{args.image_tag}"
         log.info("DRY RUN — nothing will be created.")
         log.info("Would (auth=%s):", args.auth)
         log.info("  Enable   : run, storage, iamcredentials, artifactregistry APIs")
@@ -154,6 +155,35 @@ def main() -> int:
                  SERVICE_NAME, image, SERVICE_CPU, SERVICE_MEMORY,
                  SERVICE_TIMEOUT_S, args.min_instances)
         return 0
+
+    # In sdk mode the credential can carry a project hint — fall back to it
+    # if --project wasn't passed. Browser creds have no project hint, so
+    # the user must provide --project explicitly in that mode.
+    creds = None
+    if args.auth == "sdk":
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import _sdk_ops  # type: ignore[import-not-found]
+        resolved = _sdk_ops.resolve_credentials(args.service_account_json)
+        creds = resolved.credentials
+        log.info("SDK auth source: %s (project hint=%s)",
+                 resolved.source, resolved.project_hint)
+        if not args.project:
+            args.project = resolved.project_hint
+    elif args.auth == "browser":
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import _oauth_browser  # type: ignore[import-not-found]
+        creds = _oauth_browser.login(args.oauth_client_json)
+        log.info("Browser OAuth complete; user identity authenticated")
+
+    if not args.project:
+        raise SystemExit(
+            "error: --project (or GOOGLE_CLOUD_PROJECT) must be set"
+        )
+
+    bucket = os.environ.get(
+        "SHARKTOPUS_GCS_BUCKET", f"sharktopus-crops-{args.project}",
+    )
+    image = f"{GHCR_IMAGE}:{args.image_tag}"
 
     if args.auth == "cli":
         _ensure_gcloud_cli()
@@ -166,6 +196,8 @@ def main() -> int:
             allow_unauthenticated=not args.authenticated_only,
         )
     else:
+        # sdk and browser both dispatch through the pure-Python path — the
+        # only difference is how `creds` was obtained.
         url = _deploy_sdk(creds, args, bucket)
 
     log.info("=" * 60)

@@ -150,32 +150,54 @@ def _setup_gcloud() -> int:
     print("== sharktopus setup gcloud ==")
 
     # --- [1/4] Pick auth path.
-    # Two dimensions: install/use gcloud CLI, or go pure-Python SDK.
+    # Three dimensions: install/use gcloud CLI, or go pure-Python via SDK
+    # (service-account JSON / ADC) or via browser OAuth (no CLI, no keys).
     gcloud = _find_gcloud()
     sa_json: str | None = None
     if gcloud:
         print(f"[1/4] gcloud CLI found at {gcloud}.")
         print("      Pick an auth path:")
         print("        (a) Use installed gcloud CLI (reads ~/.config/gcloud/)")
-        print("        (b) Pure Python SDK (no CLI calls)")
+        print("        (b) Pure Python SDK (service account / ADC)")
+        print("        (c) Pure Python + browser OAuth (no gcloud, no key)")
         choice = _ask("Choice", default="a").lower()
-        mode = "cli" if choice.startswith("a") else "sdk"
-    else:
-        print("[1/4] gcloud CLI not installed. Pick an auth path:")
-        print("        (a) Install gcloud CLI (~200 MB user-space + browser login)")
-        print("        (b) Pure Python SDK (no install; needs service account JSON)")
-        choice = _ask("Choice", default="b").lower()
         if choice.startswith("a"):
-            gcloud = _install_gcloud()
             mode = "cli"
+        elif choice.startswith("c"):
+            mode = "browser"
         else:
             mode = "sdk"
+    else:
+        print("[1/4] gcloud CLI not installed. Pick an auth path:")
+        print("        (a) Pure Python + browser OAuth (no install, no key) [recommended]")
+        print("        (b) Install gcloud CLI (~200 MB user-space + browser login)")
+        print("        (c) Pure Python SDK (no install; needs service account JSON)")
+        choice = _ask("Choice", default="a").lower()
+        if choice.startswith("b"):
+            gcloud = _install_gcloud()
+            mode = "cli"
+        elif choice.startswith("c"):
+            mode = "sdk"
+        else:
+            mode = "browser"
 
     env = os.environ.copy()
     if gcloud:
         env["PATH"] = f"{Path(gcloud).parent}{os.pathsep}{env.get('PATH', '')}"
 
-    if mode == "cli":
+    if mode == "browser":
+        # Browser OAuth needs google-auth-oauthlib; surface a helpful
+        # error up front if the dep is missing. The actual browser pop
+        # happens inside provision.py -> _oauth_browser.login().
+        try:
+            import google_auth_oauthlib.flow  # noqa: F401
+        except ImportError:
+            print()
+            print("      Browser OAuth needs `google-auth-oauthlib`.")
+            print("      Install with: pip install google-auth-oauthlib")
+            return 2
+        print("      Browser OAuth will open on first deploy.")
+    elif mode == "cli":
         # --- [2/4] User account auth
         active = subprocess.run(
             [gcloud, "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
@@ -208,7 +230,7 @@ def _setup_gcloud() -> int:
                 return 130
         else:
             print(f"      ADC present at {adc}")
-    else:
+    elif mode == "sdk":
         # sdk mode: find a credential source.
         adc = HOME / ".config" / "gcloud" / "application_default_credentials.json"
         env_sa = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
@@ -242,7 +264,9 @@ def _setup_gcloud() -> int:
             capture_output=True, text=True,
         ).stdout.strip()
     project = _ask("GCloud project ID to deploy into", default=cfg_proj or None)
-    if not project and mode == "cli":
+    if not project and mode in ("cli", "browser"):
+        # cli needs it for `gcloud config`; browser creds carry no project
+        # hint so the user must name the target project explicitly.
         print("setup: project is required", file=sys.stderr)
         return 2
 

@@ -21,14 +21,26 @@ Resources created (names overridable via env vars / CLI flags):
   with ``--allow-unauthenticated`` by default so a fresh install can
   invoke it without extra IAM wiring (clients still get TLS).
 
-Auth: this script uses the user's ADC (``gcloud auth application-
-default login`` or a GOOGLE_APPLICATION_CREDENTIALS service account
-key). Target project comes from ``--project`` / ``GOOGLE_CLOUD_PROJECT``.
+Auth + execution modes (``--auth``):
+
+* ``cli`` (default) — shells out to the ``gcloud`` binary for every
+  operation. Requires ``gcloud`` on ``PATH`` and a prior
+  ``gcloud auth login`` / ``gcloud auth application-default login``.
+* ``sdk`` — pure-Python; no ``gcloud`` binary needed. Uses the
+  ``google-cloud-*`` SDKs directly. Credentials come from
+  ``GOOGLE_APPLICATION_CREDENTIALS`` (service account JSON), then the
+  ADC file at ``~/.config/gcloud/application_default_credentials.json``,
+  then the GCE metadata server.
+
+Target project comes from ``--project`` / ``GOOGLE_CLOUD_PROJECT`` or
+(in ``sdk`` mode) from the credential itself when unambiguous.
 
 Usage::
 
     python deploy/gcloud/provision.py \\
         --project my-proj [--region us-central1] \\
+        [--auth {cli,sdk}] \\
+        [--service-account-json /path/to/key.json] \\
         [--image-tag cloudrun-latest] [--min-instances 0]
 """
 
@@ -41,6 +53,7 @@ import os
 import subprocess
 import sys
 from datetime import timedelta
+from pathlib import Path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,6 +81,21 @@ def main() -> int:
     parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT"))
     parser.add_argument("--region", default=DEFAULT_REGION)
     parser.add_argument(
+        "--auth",
+        choices=("cli", "sdk"),
+        default=os.environ.get("SHARKTOPUS_GCLOUD_AUTH", "cli"),
+        help=(
+            "'cli' (default) shells out to gcloud for every step (requires "
+            "the gcloud binary). 'sdk' is pure-Python — uses google-cloud-* "
+            "SDKs with credentials from GOOGLE_APPLICATION_CREDENTIALS or ADC."
+        ),
+    )
+    parser.add_argument(
+        "--service-account-json",
+        default=os.environ.get("SHARKTOPUS_GCLOUD_SA_JSON"),
+        help="Path to a service account JSON key (sdk mode only).",
+    )
+    parser.add_argument(
         "--image-tag", default=IMAGE_TAG,
         help=f"Tag on {GHCR_IMAGE} (default: cloudrun-latest)",
     )
@@ -92,6 +120,19 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # In sdk mode, the credential can carry a project hint — fall back to
+    # it if --project wasn't passed.
+    creds = None
+    if args.auth == "sdk":
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import _sdk_ops  # type: ignore[import-not-found]
+        resolved = _sdk_ops.resolve_credentials(args.service_account_json)
+        creds = resolved.credentials
+        log.info("SDK auth source: %s (project hint=%s)",
+                 resolved.source, resolved.project_hint)
+        if not args.project:
+            args.project = resolved.project_hint
+
     if not args.project:
         raise SystemExit(
             "error: --project (or GOOGLE_CLOUD_PROJECT) must be set"
@@ -104,7 +145,7 @@ def main() -> int:
 
     if args.dry_run:
         log.info("DRY RUN — nothing will be created.")
-        log.info("Would:")
+        log.info("Would (auth=%s):", args.auth)
         log.info("  Enable   : run, storage, iamcredentials, artifactregistry APIs")
         log.info("  Bucket   : gs://%s (7d lifecycle on crops/)", bucket)
         log.info("  AR proxy : %s-docker.pkg.dev/%s/%s → https://ghcr.io",
@@ -114,15 +155,18 @@ def main() -> int:
                  SERVICE_TIMEOUT_S, args.min_instances)
         return 0
 
-    _ensure_gcloud_cli()
-    ensure_apis(args.project)
-    ensure_bucket(args.project, bucket)
-    deploy_image = ensure_ghcr_proxy(args.project, args.region, args.image_tag)
-    url = deploy_service(
-        args.project, args.region, deploy_image, bucket,
-        min_instances=args.min_instances,
-        allow_unauthenticated=not args.authenticated_only,
-    )
+    if args.auth == "cli":
+        _ensure_gcloud_cli()
+        ensure_apis(args.project)
+        ensure_bucket(args.project, bucket)
+        deploy_image = ensure_ghcr_proxy(args.project, args.region, args.image_tag)
+        url = deploy_service(
+            args.project, args.region, deploy_image, bucket,
+            min_instances=args.min_instances,
+            allow_unauthenticated=not args.authenticated_only,
+        )
+    else:
+        url = _deploy_sdk(creds, args, bucket)
 
     log.info("=" * 60)
     log.info("Deploy complete.")
@@ -308,6 +352,38 @@ def deploy_service(
         project=project,
     )
     return (r.stdout or "").strip()
+
+
+def _deploy_sdk(credentials, args, bucket: str) -> str:
+    """Pure-Python equivalent of the CLI ensure_*/deploy_service sequence."""
+    import _sdk_ops  # type: ignore[import-not-found]
+
+    apis = [
+        "run.googleapis.com",
+        "storage.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "artifactregistry.googleapis.com",
+    ]
+    _sdk_ops.ensure_apis_sdk(credentials, args.project, apis)
+    _sdk_ops.ensure_bucket_sdk(credentials, args.project, bucket, args.region)
+    _sdk_ops.ensure_ghcr_proxy_sdk(
+        credentials, args.project, args.region, AR_REPO_NAME,
+    )
+
+    ghcr_path = GHCR_IMAGE.split("ghcr.io/", 1)[-1]
+    deploy_image = (
+        f"{args.region}-docker.pkg.dev/{args.project}"
+        f"/{AR_REPO_NAME}/{ghcr_path}:{args.image_tag}"
+    )
+    url = _sdk_ops.deploy_service_sdk(
+        credentials, args.project, args.region, SERVICE_NAME, deploy_image,
+        env_vars={"SHARKTOPUS_GCS_BUCKET": bucket, "SHARKTOPUS_MEMORY_MB": "2048"},
+        cpu=SERVICE_CPU, memory=SERVICE_MEMORY, timeout_s=SERVICE_TIMEOUT_S,
+        concurrency=8,
+        min_instances=args.min_instances, max_instances=20,
+        allow_unauthenticated=not args.authenticated_only,
+    )
+    return url
 
 
 if __name__ == "__main__":

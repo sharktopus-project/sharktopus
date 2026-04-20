@@ -148,67 +148,121 @@ def _install_gcloud() -> str:
 
 def _setup_gcloud() -> int:
     print("== sharktopus setup gcloud ==")
-    gcloud = _find_gcloud() or _install_gcloud()
-    print(f"[1/4] gcloud CLI: {gcloud}")
 
-    # --- [2/4] User account auth
-    active = subprocess.run(
-        [gcloud, "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
-        capture_output=True, text=True,
-    ).stdout.strip()
-    if not active:
-        print()
-        print("[2/4] gcloud has no active account.")
-        print("      Run in a terminal (browser will open, paste code back):")
-        print(f"          {gcloud} auth login --no-launch-browser")
-        try:
-            input("      Press ENTER when login completes, or Ctrl-C to abort... ")
-        except (KeyboardInterrupt, EOFError):
-            print()
-            return 130
+    # --- [1/4] Pick auth path.
+    # Two dimensions: install/use gcloud CLI, or go pure-Python SDK.
+    gcloud = _find_gcloud()
+    sa_json: str | None = None
+    if gcloud:
+        print(f"[1/4] gcloud CLI found at {gcloud}.")
+        print("      Pick an auth path:")
+        print("        (a) Use installed gcloud CLI (reads ~/.config/gcloud/)")
+        print("        (b) Pure Python SDK (no CLI calls)")
+        choice = _ask("Choice", default="a").lower()
+        mode = "cli" if choice.startswith("a") else "sdk"
     else:
-        print(f"[2/4] gcloud active account: {active}")
+        print("[1/4] gcloud CLI not installed. Pick an auth path:")
+        print("        (a) Install gcloud CLI (~200 MB user-space + browser login)")
+        print("        (b) Pure Python SDK (no install; needs service account JSON)")
+        choice = _ask("Choice", default="b").lower()
+        if choice.startswith("a"):
+            gcloud = _install_gcloud()
+            mode = "cli"
+        else:
+            mode = "sdk"
 
-    # --- [3/4] ADC (for the Python client later)
-    adc = HOME / ".config" / "gcloud" / "application_default_credentials.json"
-    if not adc.exists():
-        print()
-        print("[3/4] Application Default Credentials missing.")
-        print("      Run in a terminal:")
-        print(f"          {gcloud} auth application-default login --no-launch-browser")
-        try:
-            input("      Press ENTER when it completes... ")
-        except (KeyboardInterrupt, EOFError):
+    env = os.environ.copy()
+    if gcloud:
+        env["PATH"] = f"{Path(gcloud).parent}{os.pathsep}{env.get('PATH', '')}"
+
+    if mode == "cli":
+        # --- [2/4] User account auth
+        active = subprocess.run(
+            [gcloud, "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if not active:
             print()
-            return 130
+            print("      gcloud has no active account.")
+            print("      Run in a terminal (browser will open, paste code back):")
+            print(f"          {gcloud} auth login --no-launch-browser")
+            try:
+                input("      Press ENTER when login completes, or Ctrl-C to abort... ")
+            except (KeyboardInterrupt, EOFError):
+                print()
+                return 130
+        else:
+            print(f"      Active account: {active}")
+
+        # --- [3/4] ADC (for the Python client later)
+        adc = HOME / ".config" / "gcloud" / "application_default_credentials.json"
+        if not adc.exists():
+            print()
+            print("      Application Default Credentials missing.")
+            print("      Run in a terminal:")
+            print(f"          {gcloud} auth application-default login --no-launch-browser")
+            try:
+                input("      Press ENTER when it completes... ")
+            except (KeyboardInterrupt, EOFError):
+                print()
+                return 130
+        else:
+            print(f"      ADC present at {adc}")
     else:
-        print(f"[3/4] ADC present at {adc}")
+        # sdk mode: find a credential source.
+        adc = HOME / ".config" / "gcloud" / "application_default_credentials.json"
+        env_sa = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if env_sa and Path(env_sa).exists():
+            print(f"      Using GOOGLE_APPLICATION_CREDENTIALS={env_sa}")
+            sa_json = env_sa
+        elif adc.exists():
+            print(f"      Using ADC at {adc}")
+        else:
+            print()
+            print("      Pure-Python auth needs one of:")
+            print("        * a service account JSON key, or")
+            print("        * an ADC file at ~/.config/gcloud/application_default_credentials.json")
+            print()
+            print("      Create a service account key in the GCP console")
+            print("      (IAM & Admin → Service Accounts → Keys → Add key)")
+            print("      and give it the Editor role (or the minimum needed:")
+            print("       Artifact Registry Admin, Cloud Run Admin, Storage Admin,")
+            print("       Service Usage Admin, Service Account User).")
+            sa_json = _ask("Path to service account JSON key") or None
+            if not sa_json or not Path(sa_json).exists():
+                print("setup: service account JSON is required for sdk mode",
+                      file=sys.stderr)
+                return 2
 
     # --- [4/4] Pick project + deploy
-    cfg_proj = subprocess.run(
-        [gcloud, "config", "get-value", "project"],
-        capture_output=True, text=True,
-    ).stdout.strip()
+    cfg_proj = ""
+    if mode == "cli":
+        cfg_proj = subprocess.run(
+            [gcloud, "config", "get-value", "project"],
+            capture_output=True, text=True,
+        ).stdout.strip()
     project = _ask("GCloud project ID to deploy into", default=cfg_proj or None)
-    if not project:
+    if not project and mode == "cli":
         print("setup: project is required", file=sys.stderr)
         return 2
 
+    print(f"[2/4] Auth: {mode}   Project: {project or '<from credential>'}")
+
     print()
-    print(f"[4/4] Deploying sharktopus-crop to project {project} ...")
+    print(f"[3/4] Deploying sharktopus-crop to project {project} (auth={mode}) ...")
     script = _find_provision_script("gcloud")
-    env = os.environ.copy()
-    env["PATH"] = f"{Path(gcloud).parent}{os.pathsep}{env.get('PATH', '')}"
-    rc = _run(
-        [sys.executable, str(script), "--project", project, "--authenticated-only"],
-        env=env,
-    )
+    cmd = [sys.executable, str(script), "--auth", mode]
+    if project:
+        cmd += ["--project", project]
+    if sa_json:
+        cmd += ["--service-account-json", sa_json]
+    rc = _run(cmd, env=env)
     if rc != 0:
         print("setup: provision.py failed", file=sys.stderr)
         return rc
 
     print()
-    print("Done. Quick test:")
+    print("[4/4] Done. Quick test:")
     print("  python -c \"from sharktopus.sources import gcloud_crop;"
           " p = gcloud_crop.fetch_step('20260417','00',6,"
           " bbox=(-50,-40,-25,-20), variables=['TMP'], levels=['500 mb']);"

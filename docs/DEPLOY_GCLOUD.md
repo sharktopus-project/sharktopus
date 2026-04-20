@@ -9,17 +9,27 @@ Validated end-to-end on **2026-04-19** against
 
 ---
 
-## Authentication — no password touches sharktopus
+## Authentication — your password never touches sharktopus
 
-`provision.py` shells out to the `gcloud` CLI; it never sees your
-password, never reads a credential JSON, never stores anything beyond
-what `gcloud` itself caches. The supported auth paths below are all
-**browser-based OAuth2** — you click "Authorize" once in a browser,
-Google issues a refresh token that `gcloud` holds in
-`~/.config/gcloud/`, and that's it. You can revoke the authorization
-any time at <https://myaccount.google.com/permissions>.
+**Always prefer browser/token-based flows.** You type your password at
+Google's own sign-in page, in your own browser. sharktopus only ever
+sees the short-lived **access token** that Google issues afterwards —
+never the password. Revoke at any time at
+<https://myaccount.google.com/permissions>.
 
-Two flows, both using the same browser-authorize model:
+Two execution modes for `provision.py`, selected via `--auth`:
+
+| Path | Requires `gcloud` CLI? | Requires sudo? | Best for |
+|---|---|---|---|
+| **A. `--auth cli`** (default) | Yes (one user-space install) | No | Users who already have `gcloud` or want the richer CLI |
+| **B. `--auth sdk`** | No | No | Single-machine developers who don't want extra tooling |
+
+Both paths ultimately use OAuth2: Option A delegates to the `gcloud`
+CLI, Option B uses `google-auth` directly.
+
+### Option A — gcloud CLI (recommended when already installed)
+
+Two subcommands cover both surfaces:
 
 | Purpose                 | Command                                         | Creates                       |
 |-------------------------|--------------------------------------------------|-------------------------------|
@@ -28,8 +38,33 @@ Two flows, both using the same browser-authorize model:
 
 The deployer needs both (provision.py uses gcloud; the Python client
 later uses ADC to mint ID tokens for authenticated Cloud Run calls).
-For a **service-account-based production setup** (e.g., CI), a JSON
-key file can replace both — see the bottom of this doc.
+
+### Option B — pure Python (`--auth sdk`)
+
+No `gcloud` binary required. Credentials come from the standard
+`google-auth` resolution chain:
+
+1. `GOOGLE_APPLICATION_CREDENTIALS` → service account JSON path.
+2. `--service-account-json /path/to/key.json` (CLI flag).
+3. `~/.config/gcloud/application_default_credentials.json` (ADC file
+   copied in from any machine that has `gcloud`).
+4. GCE/Cloud Shell metadata server (when running inside GCP).
+
+Interactive **browser** OAuth for a user account (the pure-Python
+equivalent of `gcloud auth login`) needs a public Desktop OAuth client
+registered to a sharktopus-owned GCP project. That registration is
+tracked as a separate setup task; for now, pure-Python users should
+either:
+
+- create a service account key in the GCP console and point
+  `GOOGLE_APPLICATION_CREDENTIALS` at it, or
+- run `gcloud auth application-default login` once on any machine and
+  copy the resulting ADC file to
+  `~/.config/gcloud/application_default_credentials.json` on the
+  deploy host.
+
+For a **service-account-based production setup** (CI / headless), a
+JSON key file is the canonical path — see the bottom of this doc.
 
 ---
 
@@ -48,9 +83,12 @@ key file can replace both — see the bottom of this doc.
   GitHub org). See [README](../README.md#cloud-side-crop-gcloud_crop)
   for the one-shot visibility change.
 
-## Step 1 — Install the gcloud CLI
+## Step 1a — (Option A only) Install the gcloud CLI
 
-Only the deployer needs this. **End users of `pip install sharktopus` never need the gcloud CLI** — the runtime client talks to the Cloud Run service via plain HTTPS and mints its own ID token via ADC.
+Skip this section if you picked **Option B** (`--auth sdk`). **End
+users of `pip install sharktopus` never need the gcloud CLI** — the
+runtime client talks to the Cloud Run service via plain HTTPS and
+mints its own ID token via ADC.
 
 User-space install (no sudo required):
 
@@ -62,6 +100,21 @@ rm google-cloud-cli-linux-x86_64.tar.gz
 ./google-cloud-sdk/install.sh --quiet --path-update=true --rc-path="$HOME/.bashrc"
 # New shell, or source ~/.bashrc, to pick up the updated PATH.
 ```
+
+## Step 1b — (Option B only) Install Python SDKs
+
+Skip this section if you picked **Option A** (`--auth cli`).
+
+```bash
+pip install \
+    google-auth \
+    google-cloud-run \
+    google-cloud-artifact-registry \
+    google-cloud-service-usage \
+    google-cloud-storage
+```
+
+Then run `provision.py --auth sdk ...`; see Step 3.
 
 ## Step 2 — Authenticate
 
@@ -104,12 +157,37 @@ Confirm:
 
 ## Step 3 — Run the provision script
 
+### Option A — CLI-driven (`--auth cli`, default)
+
 ```bash
 cd /path/to/sharktopus
 PATH="$HOME/google-cloud-sdk/bin:$PATH" python3 deploy/gcloud/provision.py \
     --project YOUR-PROJECT-ID \
     --authenticated-only
 ```
+
+### Option B — Pure-Python SDK (`--auth sdk`)
+
+```bash
+cd /path/to/sharktopus
+# Option 1: service account JSON on disk
+python3 deploy/gcloud/provision.py \
+    --auth sdk \
+    --service-account-json /path/to/key.json \
+    --project YOUR-PROJECT-ID \
+    --authenticated-only
+
+# Option 2: env var
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+python3 deploy/gcloud/provision.py \
+    --auth sdk --project YOUR-PROJECT-ID --authenticated-only
+
+# Option 3: ADC file already present (from a prior gcloud auth ADC login)
+python3 deploy/gcloud/provision.py \
+    --auth sdk --project YOUR-PROJECT-ID --authenticated-only
+```
+
+Common flags (both options):
 
 - `--authenticated-only` deploys with `--no-allow-unauthenticated`, so
   the Cloud Run URL requires an IAM ID token to invoke. Recommended

@@ -8,26 +8,67 @@ Validated against account `120811381286` region `us-east-1`.
 
 ---
 
-## Authentication — no password touches sharktopus
+## Authentication — your password never touches sharktopus
 
-The `provision.py` script uses `boto3`'s default credential chain. It
-never asks you for a password, never prompts for an access key, and
-never stores credentials anywhere. Whatever your `aws` CLI /
-`~/.aws/credentials` is already configured to use is what `provision.py`
-will use.
+**Always prefer the browser/SSO flow.** You type your password at your
+company's SSO page, in your own browser. sharktopus only ever sees the
+short-lived **access token** that the flow returns afterwards — never
+the password. The token sits in `~/.aws/sso/cache/` (when using the
+`aws` CLI) or `~/.cache/sharktopus/aws_sso_token.json` (when using the
+pure-Python flow).
 
-Two supported authentication paths:
+Three supported auth paths. Pick the one that matches your host:
 
-| Path                              | Long-lived credential on disk? | Recommended |
-|-----------------------------------|---|---|
-| **IAM Identity Center (SSO)**      | No — only a short-lived cached token (1-12 h) | ✅ Yes |
-| Static IAM User access keys        | Yes — `aws_access_key_id` + `aws_secret_access_key` in `~/.aws/credentials` | Fallback |
+| Path | Requires `aws` CLI? | Requires sudo? | Best for |
+|---|---|---|---|
+| **A. Pure Python SSO** | No | No | Single-machine developers who don't want extra tooling |
+| **B. AWS CLI + SSO** | Yes (one user-space install) | No | Users who already have `aws` or want the richer CLI |
+| **C. Static IAM access keys** | No | No | Accounts without IAM Identity Center, CI runners |
 
-Use SSO if your AWS organization has IAM Identity Center enabled. It's
-the AWS equivalent of "authorize once in the browser, no password in
-sight": you `aws sso login`, click a link, authorize in your browser,
-and a temporary token is cached locally. When it expires (default 8 h,
-up to 12 h), you just run `aws sso login` again.
+Options A and B both use the same IAM Identity Center browser sign-in
+page — your password is always typed at your SSO start URL, never in
+your terminal or anywhere in this repo.
+
+### Option A — Pure Python SSO, no CLI install (recommended for laptops)
+
+`provision.py --auth sso-oidc` runs the IAM Identity Center OIDC
+device-code flow using only `boto3` (already a dependency). It prints a
+short code + URL, opens your browser, you approve, and temporary role
+credentials land in the running process. Token is cached to
+`~/.cache/sharktopus/aws_sso_token.json` so you don't re-authorize on
+every run.
+
+```bash
+python deploy/aws/provision.py \
+    --auth sso-oidc \
+    --sso-start-url https://mycorp.awsapps.com/start \
+    --sso-region us-east-1 \
+    --region us-east-1
+# → opens browser at the start URL
+# → if multiple accounts/roles are visible, provision.py prompts
+# → deploy proceeds with short-lived role credentials
+```
+
+Ask your AWS admin for the **SSO start URL** and **SSO region**. If you
+already have the `aws` CLI configured for SSO, the start URL lives in
+`~/.aws/config` under `sso_start_url =`.
+
+### Option B — AWS CLI + SSO sign-in
+
+For users who prefer having the `aws` CLI for unrelated reasons, or
+who already installed it. Functionally equivalent to Option A: same
+browser sign-in, same token lifetime. The CLI just persists the token
+to `~/.aws/sso/cache/` so `boto3`'s default credential chain picks it
+up without any env vars.
+
+### Option C — Static IAM access keys (no CLI, no SSO)
+
+For accounts that don't have IAM Identity Center, or for headless
+hosts where browser sign-in isn't feasible. `provision.py --auth
+access-key` prompts for `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+interactively; they live in the running process only (nothing is
+written to `~/.aws/`). You can also set the standard env vars ahead of
+time and use `--auth default`.
 
 ---
 
@@ -40,14 +81,39 @@ up to 12 h), you just run `aws sso login` again.
   - `AmazonEC2ContainerRegistryFullAccess`
   - `AmazonS3FullAccess`
   - `IAMFullAccess` (needed to create the Lambda execution role)
-- **AWS CLI v2** — only needed if you're using SSO. Download from
+- **AWS CLI v2** — only needed for Option B. Pure-Python (Option A) and
+  static-key (Option C) paths never touch it. Download from
   <https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html>
   (choose the Linux/macOS/Windows installer).
-- `boto3` (comes with `pip install sharktopus`).
+- `boto3` (comes with `pip install sharktopus`) — required in all
+  three paths since `provision.py` itself uses it.
 
 ## Step 1 — Authenticate
 
-### Option A: IAM Identity Center (SSO) — recommended
+### Option A — Pure-Python SSO (recommended)
+
+Skip the `aws` CLI entirely. You'll need from your org admin:
+
+- `sso_start_url` (e.g. `https://mycorp.awsapps.com/start`)
+- `sso_region` (e.g. `us-east-1`)
+
+Then:
+
+```bash
+python deploy/aws/provision.py \
+    --auth sso-oidc \
+    --sso-start-url https://mycorp.awsapps.com/start \
+    --sso-region us-east-1 \
+    --region us-east-1
+```
+
+The script prints a short code + verification URL, opens your browser,
+and polls until you approve. Temp credentials are used for that run;
+the SSO access token is cached to `~/.cache/sharktopus/aws_sso_token.json`
+so subsequent runs skip the browser until the token expires (typically
+8-12 h).
+
+### Option B — IAM Identity Center via AWS CLI
 
 One-shot setup (first time only):
 
@@ -55,9 +121,9 @@ One-shot setup (first time only):
 aws configure sso
 ```
 
-This walks you through: SSO session name, SSO start URL (from your AWS
-org admin), SSO region, account+role selection, default region, default
-output, and a **profile name** (let's say `sharktopus-deploy`).
+This walks you through: SSO session name, SSO start URL, SSO region,
+account+role selection, default region, default output, and a
+**profile name** (let's say `sharktopus-deploy`).
 
 Daily use:
 
@@ -66,32 +132,49 @@ aws sso login --profile sharktopus-deploy
 ```
 
 This opens a browser window, asks you to authorize the CLI, and caches
-a short-lived token in `~/.aws/sso/cache/`. No long-lived secret lives
-on your disk.
+a short-lived token in `~/.aws/sso/cache/`. `provision.py` with
+`--auth default --profile sharktopus-deploy` picks it up via the boto3
+credential chain.
 
-### Option B: Static IAM User access keys
+### Option C — Static IAM User access keys
 
 If your organization doesn't have IAM Identity Center, or you prefer an
-IAM User, create an access key pair in the IAM console (Users → your
-user → Security credentials → Create access key) and run:
+IAM User: create an access key pair in the IAM console (Users → your
+user → Security credentials → Create access key), then either:
+
+```bash
+# Interactive (no files touched):
+python deploy/aws/provision.py --auth access-key --region us-east-1
+
+# Or via env vars (same effect as --auth default):
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+python deploy/aws/provision.py --region us-east-1
+```
+
+If you prefer the aws CLI to persist the keys to `~/.aws/credentials`:
 
 ```bash
 aws configure --profile sharktopus-deploy
 # AWS Access Key ID [None]: AKIA...
 # AWS Secret Access Key [None]: ...
-# Default region name [None]: us-east-1
-# Default output format [None]: json
 ```
 
-Credentials land in `~/.aws/credentials` as plaintext. **Rotate every
-90 days**, and never commit them.
+Credentials then land in `~/.aws/credentials` as plaintext. **Rotate
+every 90 days**, and never commit them.
 
 ### Confirm
+
+If you used Options B or C with a named profile:
 
 ```bash
 aws sts get-caller-identity --profile sharktopus-deploy
 # -> {"UserId":"...", "Account":"123...", "Arn":"..."}
 ```
+
+For Option A / access-key, `provision.py` makes the equivalent
+`sts:GetCallerIdentity` call itself on startup and exits 2 with a
+clear hint if credentials don't resolve.
 
 ## Step 2 — Run the provision script
 

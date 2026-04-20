@@ -278,48 +278,102 @@ def _install_aws() -> str:
 
 def _setup_aws() -> int:
     print("== sharktopus setup aws ==")
-    aws = _find_aws() or _install_aws()
-    print(f"[1/3] AWS CLI: {aws}")
 
-    profile = _ask("AWS profile name", default="sharktopus-deploy")
+    # --- [1/3] Pick auth path.
+    # Two dimensions: install/use aws CLI, or go pure-Python.
+    # If aws is already on PATH we ask which to use; otherwise we offer
+    # install OR pure-Python SSO OIDC OR static access keys.
+    aws = _find_aws()
+    if aws:
+        print(f"[1/3] AWS CLI found at {aws}.")
+        print("      Pick an auth path:")
+        print("        (a) Use installed aws CLI (reads ~/.aws/ session)")
+        print("        (b) Pure Python SSO (no CLI calls; browser opens)")
+        choice = _ask("Choice", default="a").lower()
+        mode = "cli" if choice.startswith("a") else "sso-oidc"
+    else:
+        print("[1/3] AWS CLI not installed. Pick an auth path:")
+        print("        (a) Install aws CLI (user-space + SSO browser login)")
+        print("        (b) Pure Python SSO (no install; browser opens)")
+        print("        (c) Static access keys (IAM User key + secret)")
+        choice = _ask("Choice", default="b").lower()
+        if choice.startswith("a"):
+            aws = _install_aws()
+            mode = "cli"
+        elif choice.startswith("c"):
+            mode = "access-key"
+        else:
+            mode = "sso-oidc"
+
     region = _ask("AWS region", default="us-east-1")
 
     env = os.environ.copy()
-    env["PATH"] = f"{Path(aws).parent}{os.pathsep}{env.get('PATH', '')}"
-    rc = subprocess.run(
-        [aws, "sts", "get-caller-identity", "--profile", profile],
-        capture_output=True, env=env,
-    ).returncode
-    if rc != 0:
-        print()
-        print(f"[2/3] Profile {profile!r} has no valid credentials.")
-        print("      Pick an auth method:")
-        print("        (a) SSO — browser-based, no long-lived keys (recommended)")
-        print("        (b) Static access keys (IAM User)")
-        choice = _ask("Choice", default="a").lower()
-        print()
-        if choice.startswith("b"):
-            print("      Run this and enter your access keys when prompted:")
-            print(f"          {aws} configure --profile {profile}")
-        else:
-            print("      Run this (one-shot SSO setup), then the login:")
-            print(f"          {aws} configure sso --profile {profile}")
-            print(f"          {aws} sso login    --profile {profile}")
-        try:
-            input("      Press ENTER when auth is working... ")
-        except (KeyboardInterrupt, EOFError):
-            print()
-            return 130
-    else:
-        print(f"[2/3] Profile {profile!r} already authenticated.")
+    if aws:
+        env["PATH"] = f"{Path(aws).parent}{os.pathsep}{env.get('PATH', '')}"
 
+    profile: str | None = None
+    sso_start_url: str | None = None
+    sso_region: str | None = None
+
+    if mode == "cli":
+        profile = _ask("AWS profile name", default="sharktopus-deploy")
+        rc = subprocess.run(
+            [aws, "sts", "get-caller-identity", "--profile", profile],
+            capture_output=True, env=env,
+        ).returncode
+        if rc != 0:
+            print()
+            print(f"      Profile {profile!r} has no valid credentials.")
+            print("      Pick an auth method:")
+            print("        (a) SSO — browser-based, no long-lived keys (recommended)")
+            print("        (b) Static access keys (IAM User)")
+            sub = _ask("Choice", default="a").lower()
+            print()
+            if sub.startswith("b"):
+                print("      Run this and enter your access keys when prompted:")
+                print(f"          {aws} configure --profile {profile}")
+            else:
+                print("      Run this (one-shot SSO setup), then the login:")
+                print(f"          {aws} configure sso --profile {profile}")
+                print(f"          {aws} sso login    --profile {profile}")
+            try:
+                input("      Press ENTER when auth is working... ")
+            except (KeyboardInterrupt, EOFError):
+                print()
+                return 130
+        else:
+            print(f"      Profile {profile!r} already authenticated.")
+    elif mode == "sso-oidc":
+        print()
+        print("      IAM Identity Center details (from your AWS org admin):")
+        sso_start_url = _ask(
+            "SSO start URL (e.g. https://mycorp.awsapps.com/start)"
+        )
+        if not sso_start_url:
+            print("setup: SSO start URL is required for pure-Python SSO.",
+                  file=sys.stderr)
+            return 2
+        sso_region = _ask("SSO region", default=region)
+    else:  # access-key
+        print()
+        print("      You'll be prompted for AWS_ACCESS_KEY_ID and")
+        print("      AWS_SECRET_ACCESS_KEY when provision.py starts.")
+        print("      Neither is written to disk.")
+
+    print(f"[2/3] Auth: {mode}   Region: {region}")
+
+    # --- [3/3] Deploy
     print()
-    print(f"[3/3] Deploying Lambda to profile={profile} region={region} ...")
+    print(f"[3/3] Deploying Lambda (auth={mode}, region={region}) ...")
     script = _find_provision_script("aws")
-    rc = _run(
-        [sys.executable, str(script), "--profile", profile, "--region", region],
-        env=env,
-    )
+    cmd = [sys.executable, str(script), "--region", region, "--auth", mode]
+    if profile:
+        cmd += ["--profile", profile]
+    if sso_start_url:
+        cmd += ["--sso-start-url", sso_start_url]
+    if sso_region:
+        cmd += ["--sso-region", sso_region]
+    rc = _run(cmd, env=env)
     if rc != 0:
         print("setup: provision.py failed", file=sys.stderr)
         return rc

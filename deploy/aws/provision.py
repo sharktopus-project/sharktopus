@@ -21,12 +21,23 @@ Resources created (names can be overridden via env vars):
 * Lambda function ``sharktopus`` — container-image, 2048 MB, 300 s
   timeout, reads the bucket name from ``SHARKTOPUS_S3_BUCKET`` env var.
 
-This script uses the default boto3 credential chain. Set
-``AWS_PROFILE=<name>`` to target a specific profile.
+Authentication (``--auth``):
+
+* ``default`` (boto3 credential chain) — env vars, then
+  ``~/.aws/credentials``, then the ``aws sso login`` token cache.
+  Requires either access keys on disk or a prior ``aws`` CLI login.
+* ``sso-oidc`` — pure-Python SSO device-code flow. Opens your browser
+  at your IAM Identity Center start URL; no ``aws`` CLI needed. Token
+  is cached to ``~/.cache/sharktopus/aws_sso_token.json``.
+* ``access-key`` — prompt interactively for an IAM User access key +
+  secret. Nothing written to ``~/.aws/``; creds live only in the
+  running process.
 
 Usage::
 
     python deploy/aws/provision.py [--profile <name>] [--region <r>] \\
+        [--auth {default,sso-oidc,access-key}] \\
+        [--sso-start-url URL --sso-region REGION] \\
         [--image-tag <tag>] [--hot-start N]
 """
 
@@ -72,6 +83,45 @@ LAMBDA_EPHEMERAL_MB = int(os.environ.get("SHARKTOPUS_LAMBDA_EPHEMERAL", "4096"))
 HOT_ALIAS = "live"
 
 
+def _build_session(args) -> boto3.Session:
+    """Resolve the requested auth path into a boto3 Session.
+
+    ``default``    — boto3 credential chain (profile-aware).
+    ``sso-oidc``   — pure-Python SSO device-code flow; temp creds live
+                     only in the resulting Session.
+    ``access-key`` — interactive prompt for an IAM User key + secret.
+    """
+    if args.auth == "sso-oidc":
+        if not args.sso_start_url or not args.sso_region:
+            raise ValueError(
+                "--auth=sso-oidc requires --sso-start-url and --sso-region "
+                "(or the SHARKTOPUS_AWS_SSO_START_URL / _REGION env vars)."
+            )
+        sys.path.insert(0, str(HERE))
+        import _sso_oidc as sso_oidc  # type: ignore[import-not-found]
+        creds, acct, role = sso_oidc.login(
+            args.sso_start_url, args.sso_region,
+            account_id=args.sso_account_id,
+            role_name=args.sso_role_name,
+        )
+        log.info("Using SSO role credentials for account %s role %s", acct, role)
+        return boto3.Session(region_name=args.region, **creds.as_session_kwargs())
+    if args.auth == "access-key":
+        import getpass
+        print("Enter IAM User credentials (left in process memory only; "
+              "nothing written to disk):")
+        key = input("  AWS_ACCESS_KEY_ID: ").strip()
+        secret = getpass.getpass("  AWS_SECRET_ACCESS_KEY: ").strip()
+        if not key or not secret:
+            raise ValueError("access key and secret are both required")
+        return boto3.Session(
+            aws_access_key_id=key,
+            aws_secret_access_key=secret,
+            region_name=args.region,
+        )
+    return boto3.Session(profile_name=args.profile) if args.profile else boto3.Session()
+
+
 def _hint_credentials(exc: Exception, profile: str | None) -> None:
     """Translate boto3's auth errors into something the user can act on.
 
@@ -95,7 +145,9 @@ def _hint_credentials(exc: Exception, profile: str | None) -> None:
 
     if "SSO" in cls or "sso" in msg.lower() or "token" in msg.lower():
         log.error("Hint: your AWS SSO session has expired (or was never started).")
-        log.error("      Run:  aws sso login --profile %s", prof)
+        log.error("      With aws CLI:  aws sso login --profile %s", prof)
+        log.error("      Without CLI :  rerun with --auth sso-oidc --sso-start-url ... "
+                  "--sso-region ...")
     elif "ProfileNotFound" in cls:
         log.error("Hint: profile %r is not configured in ~/.aws/config.", prof)
         log.error("      Run:  aws configure sso   (recommended, browser-based)")
@@ -119,6 +171,36 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", help="AWS profile name")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"))
+    parser.add_argument(
+        "--auth",
+        choices=("default", "sso-oidc", "access-key"),
+        default=os.environ.get("SHARKTOPUS_AWS_AUTH", "default"),
+        help=(
+            "Credential source. 'default' uses boto3's chain (env + "
+            "~/.aws/). 'sso-oidc' runs a pure-Python SSO device-code flow "
+            "(no aws CLI). 'access-key' prompts for an IAM User key/secret."
+        ),
+    )
+    parser.add_argument(
+        "--sso-start-url",
+        default=os.environ.get("SHARKTOPUS_AWS_SSO_START_URL"),
+        help="IAM Identity Center start URL (required when --auth=sso-oidc)",
+    )
+    parser.add_argument(
+        "--sso-region",
+        default=os.environ.get("SHARKTOPUS_AWS_SSO_REGION"),
+        help="IAM Identity Center region (required when --auth=sso-oidc)",
+    )
+    parser.add_argument(
+        "--sso-account-id",
+        default=os.environ.get("SHARKTOPUS_AWS_SSO_ACCOUNT"),
+        help="Pin SSO account id (skips account picker)",
+    )
+    parser.add_argument(
+        "--sso-role-name",
+        default=os.environ.get("SHARKTOPUS_AWS_SSO_ROLE"),
+        help="Pin SSO role name (skips role picker)",
+    )
     parser.add_argument(
         "--image-tag",
         default=IMAGE_TAG,
@@ -147,7 +229,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    session = boto3.Session(profile_name=args.profile) if args.profile else boto3.Session()
+    try:
+        session = _build_session(args)
+    except Exception as e:  # noqa: BLE001
+        _hint_credentials(e, args.profile)
+        return 2
     sts = session.client("sts", region_name=args.region)
     try:
         identity = sts.get_caller_identity()

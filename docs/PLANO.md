@@ -371,6 +371,20 @@ prioridade:
 
 ## Log de sessões
 
+### 2026-04-20 (b) — Smoke WRF-canonical nas duas nuvens
+- `scripts/smoke_wrf_canonical.py` novo: envia o perfil completo
+  `DEFAULT_VARS × DEFAULT_LEVELS` (13 × 49) para `aws_crop` e
+  `gcloud_crop`. Gap coberto — os smokes anteriores só exercitavam
+  extremos (3-var filtrado ou totalmente unfiltered).
+- Resultado (20260419 00Z f006, bbox Macaé): **248.982 bytes / 269
+  records** em ambas as nuvens, byte-for-byte idêntico. AWS 5,3 s;
+  GCloud 25,8 s (cold start + round-trip GCS).
+- Composição: 6 isobáricos × ~42 níveis = 253 + 3 soil × 4 = 12 + 4
+  single-level = 269.
+- Off-by-one fix: docstring de `sharktopus.wrf` e duas menções em
+  PLANO/CHANGELOG diziam "48 levels"; `DEFAULT_LEVELS` tem 49.
+- Commit `6120b64`.
+
 ### 2026-04-20 — `sharktopus --setup {gcloud,aws}` + docs de auth/billing
 - Bootstrap subcommand novo: `sharktopus --setup gcloud` ou `--setup aws`
   detecta o CLI da nuvem, oferece install user-space opt-in
@@ -523,7 +537,7 @@ prioridade:
     `lev_*` via `level_to_param`.
 - Escolha de design: **sem variáveis/níveis hardcoded** (todo script
   CONVECT carregava cópias privadas do conjunto WRF-input de 13 vars/
-  48 níveis). `nomads_filter.fetch_step` exige `variables=` e `levels=`
+  49 níveis). `nomads_filter.fetch_step` exige `variables=` e `levels=`
   do caller — a biblioteca fica útil para workflows fora do WRF.
 - 25 testes novos (URL, retenção, retry, 404, conversão de nível,
   fluxo download+crop com `urlopen` monkeypatched). Total: **41 passam,

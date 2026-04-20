@@ -39,7 +39,7 @@ DEFAULT_VARS: tuple[str, ...] = (
 )
 
 
-# 48 level names that CONVECT's production fetchers request. Covers the
+# 49 level names that CONVECT's production fetchers request. Covers the
 # full 1000→0.01 mb isobaric column, four soil layers, plus surface /
 # 2 m / 10 m / mean sea level diagnostics. Strings use the human-readable
 # wgrib2 form (``"500 mb"``, ``"2 m above ground"``) — see

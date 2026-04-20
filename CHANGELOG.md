@@ -5,6 +5,23 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **`sharktopus --setup {gcloud,aws}`** — one-command bootstrap that
+  detects the cloud CLI, offers a user-space install (opt-in, with
+  explicit download prompt), walks through browser-OAuth, and runs
+  `deploy/<cloud>/provision.py`. Never runs during `pip install`.
+  Lives in `src/sharktopus/setup.py`.
+- **Docs on auth + billing**: `docs/DEPLOY_AWS.md` (new; IAM Identity
+  Center as recommended path, static keys as fallback),
+  `docs/DEPLOY_GCLOUD.md` (Auth section expanded with browser-OAuth
+  details), `docs/IMAGE_STORAGE_AND_BILLING.md` (pull-once image
+  model + free-tier headroom analysis — AR ~66 MB vs 500 MB ceiling;
+  ECR ~90 MB vs 500 MB).
+- **`scripts/smoke_wrf_canonical.py`** — live smoke of the full
+  `DEFAULT_VARS × DEFAULT_LEVELS` (13 × 49) payload against AWS
+  Lambda and GCloud Cloud Run. 2026-04-20 run (20260419 00Z f006,
+  Macaé bbox): both clouds return 248,982 bytes / 269 records
+  (AWS 5.3 s, GCloud 25.8 s incl. cold start). Confirms both
+  endpoints serve the real WRF production payload byte-for-byte.
 - **GCloud cloud-side cropping** via a Cloud Run service
   (`sharktopus.sources.gcloud_crop`). Parallel path to `aws_crop`: a
   container image built from `deploy/gcloud/Dockerfile` runs wgrib2
@@ -48,6 +65,15 @@ All notable changes to this project will be documented here.
   silently drop it from auto-priority.
 
 ### Fixed
+- `src/sharktopus/wrf.py`: comment claimed 48 canonical levels; tuple
+  actually has 49 (soil layers + stratospheric + tropospheric +
+  near-surface). Same off-by-one in two docs — all three fixed to
+  read 49.
+- `sharktopus.sources.gcloud_crop._id_token_for`: `fetch_id_token`
+  fails with user-type ADC; fall back to
+  `gcloud auth print-identity-token` (with and without `--audiences`
+  for user vs SA creds). Unblocks live Cloud Run invocation when the
+  deployer authenticated as a user rather than a service account.
 - `deploy/gcloud/Dockerfile`: builder and runtime stages now share the
   `python:3.11-slim-bookworm` base so the wgrib2 binary's
   `libgfortran.so.5` matches what the runtime ships. Prior two-stage
@@ -249,7 +275,7 @@ is planned for v0.2.
 - `scripts/smoke_live.py` gains Phase 3b — byte-range fetch from aws /
   gcloud / azure / nomads with a narrow (`TMP/UGRD/VGRD @ 500, 850 mb`)
   selection, so the size/latency delta vs Phase 3 is visible at a glance.
-  Phase 3b also runs the **WRF-canonical selection** (13 vars × 48
+  Phase 3b also runs the **WRF-canonical selection** (13 vars × 49
   levels = 269 records, ~485 KB after local crop) on each mirror to
   exercise the full production path. Measured on 2026-04-17 f000:
   nomads 21 s, gcloud 35 s, aws 50 s, azure 51 s — vs 53/47/52/213 s

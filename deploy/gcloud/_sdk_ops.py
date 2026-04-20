@@ -150,45 +150,46 @@ def ensure_bucket_sdk(credentials, project: str, bucket: str, region: str) -> No
 def ensure_ghcr_proxy_sdk(
     credentials, project: str, region: str, repo_name: str,
 ) -> None:
-    """Create a remote-repository in AR that proxies ghcr.io (idempotent)."""
+    """Create a remote-repository in AR that proxies ghcr.io (idempotent).
+
+    The Python SDK's ``RemoteRepositoryConfig.DockerRepository`` only
+    exposes the ``DOCKER_HUB`` preset today; pointing at ``ghcr.io``
+    requires the ``customRepository`` field which is reachable only via
+    REST. We skip the SDK create entirely and always call the REST
+    helper — otherwise the SDK would silently create a Docker-Hub
+    proxy, Cloud Run would pull from Docker Hub instead of GHCR, and
+    the image would come back as 404.
+    """
     from google.cloud import artifactregistry_v1
-    from google.api_core.exceptions import AlreadyExists, NotFound
+    from google.api_core.exceptions import NotFound
 
     client = artifactregistry_v1.ArtifactRegistryClient(credentials=credentials)
-    parent = f"projects/{project}/locations/{region}"
-    name = f"{parent}/repositories/{repo_name}"
+    name = f"projects/{project}/locations/{region}/repositories/{repo_name}"
 
     try:
-        client.get_repository(name=name)
-        log.info("AR remote repository %s/%s already exists", region, repo_name)
-        return
+        existing = client.get_repository(name=name)
+        # Guard against a pre-existing repo pointing at the wrong upstream
+        # (e.g. a Docker-Hub proxy left over from an earlier run of the
+        # buggy SDK path). We refuse to silently reuse it.
+        uri = (
+            existing.remote_repository_config.docker_repository.custom_repository.uri
+            if existing.remote_repository_config.docker_repository.custom_repository.uri
+            else ""
+        )
+        if uri and "ghcr.io" in uri:
+            log.info("AR remote repository %s/%s already proxies ghcr.io",
+                     region, repo_name)
+            return
+        raise RuntimeError(
+            f"AR repository {repo_name} exists but does not proxy ghcr.io "
+            f"(uri={uri!r}). Delete it in the Console (Artifact Registry → "
+            f"{region}/{repo_name} → DELETE) and re-run."
+        )
     except NotFound:
         pass
 
     log.info("Creating AR remote repository %s/%s → ghcr.io", region, repo_name)
-    repo = artifactregistry_v1.Repository(
-        format_=artifactregistry_v1.Repository.Format.DOCKER,
-        mode=artifactregistry_v1.Repository.Mode.REMOTE_REPOSITORY,
-        description="GHCR proxy for sharktopus (created by provision.py)",
-        remote_repository_config=artifactregistry_v1.RemoteRepositoryConfig(
-            description="GHCR proxy for sharktopus",
-            docker_repository=artifactregistry_v1.RemoteRepositoryConfig.DockerRepository(
-                public_repository=artifactregistry_v1.RemoteRepositoryConfig.DockerRepository.PublicRepository.DOCKER_HUB,
-            ),
-        ),
-    )
-    # DOCKER_HUB is the only "public_repository" enum value in the SDK today;
-    # the REST API accepts a "customRepository" with URI=https://ghcr.io,
-    # but the Python SDK hasn't exposed that field yet. Fall back to REST.
-    try:
-        op = client.create_repository(
-            parent=parent, repository_id=repo_name, repository=repo,
-        )
-        op.result(timeout=120)
-    except (AlreadyExists, Exception) as e:
-        # If the SDK path failed for any reason, try the raw REST API.
-        log.info("SDK create_repository hit %s; falling back to REST API", type(e).__name__)
-        _create_ghcr_remote_repo_rest(credentials, project, region, repo_name)
+    _create_ghcr_remote_repo_rest(credentials, project, region, repo_name)
 
 
 def _create_ghcr_remote_repo_rest(

@@ -2,13 +2,14 @@
 
 The preferred order a client walks through when fetching one step:
 
-* Cloud-side crop first (``aws_crop``) — Lambda does the byte-range
-  + wgrib2 work server-side and returns only the cropped bytes.
-  Orders of magnitude faster when the bbox is small. ``supports()``
-  checks AWS credentials, so this entry drops out of auto-priority
-  on machines without them, and :mod:`sharktopus.cloud.aws_quota`
-  blocks it when paid usage isn't authorised.
-  (``gcloud_crop`` / ``azure_crop`` slot in next to it in phase 2.)
+* Cloud-side crop first (``aws_crop``, ``gcloud_crop``) — the Lambda /
+  Cloud Run service does the byte-range + wgrib2 work server-side and
+  returns only the cropped bytes. Orders of magnitude faster when the
+  bbox is small. ``supports()`` checks that the provider's SDK +
+  credentials are present, so each entry drops out of auto-priority
+  on machines without them, and the matching quota gate blocks it
+  when paid usage isn't authorised.
+  (``azure_crop`` slots in next to it when phase 3 ships.)
 * Plain cloud mirrors (``gcloud``/``aws``/``azure``) — full-file or
   client-side byte-range. Takes over when cloud-crop is blocked.
 * ``rda`` picks up pre-2021 dates the cloud mirrors don't have.
@@ -37,7 +38,7 @@ __all__ = [
 
 
 DEFAULT_PRIORITY: tuple[str, ...] = (
-    "aws_crop",
+    "aws_crop", "gcloud_crop",
     "gcloud", "aws", "azure", "rda", "nomads",
 )
 

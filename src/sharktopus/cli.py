@@ -116,7 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--quota", nargs="?", const="aws", metavar="PROVIDER",
-        help="Print local cloud-crop quota counter (default provider: aws) and exit.",
+        choices=("aws", "gcloud"),
+        help="Print local cloud-crop quota counter and exit (aws|gcloud; default aws).",
     )
 
     return parser

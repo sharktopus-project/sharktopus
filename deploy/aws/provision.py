@@ -62,7 +62,7 @@ GHCR_REPO = os.environ.get("SHARKTOPUS_GHCR_REPO", "sharktopus-project/sharktopu
 
 IAM_ROLE_NAME = os.environ.get("SHARKTOPUS_IAM_ROLE", "sharktopus-lambda-role")
 LAMBDA_NAME = os.environ.get("SHARKTOPUS_LAMBDA_NAME", "sharktopus")
-IMAGE_TAG = os.environ.get("SHARKTOPUS_IMAGE_TAG", "latest")
+IMAGE_TAG = os.environ.get("SHARKTOPUS_IMAGE_TAG", "lambda-latest")
 LAMBDA_MEMORY_MB = int(os.environ.get("SHARKTOPUS_LAMBDA_MEMORY", "2048"))
 LAMBDA_TIMEOUT_S = int(os.environ.get("SHARKTOPUS_LAMBDA_TIMEOUT", "300"))
 # Full 0p25 GFS is ~500 MB; wgrib2 reads + writes roughly doubles that peak.

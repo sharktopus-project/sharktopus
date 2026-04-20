@@ -81,11 +81,16 @@ def _current_month_tag(now: datetime | None = None) -> str:
 
 @dataclass
 class QuotaState:
-    """One month's worth of counters for one provider (aws, gcloud, azure)."""
+    """One month's worth of counters for one provider (aws, gcloud, azure).
+
+    ``vcpu_seconds`` is Cloud Run-specific (Lambda bundles CPU into the
+    memory class). Default 0.0 keeps the AWS path unchanged.
+    """
     provider: str
     month: str
     invocations: int = 0
     gb_seconds: float = 0.0
+    vcpu_seconds: float = 0.0
     spend_usd: float = 0.0
     avg_duration_s: float = DEFAULT_LAMBDA_DURATION_S
     memory_mb: int = DEFAULT_LAMBDA_MEMORY_MB
@@ -97,6 +102,7 @@ class QuotaState:
             self.month = tag
             self.invocations = 0
             self.gb_seconds = 0.0
+            self.vcpu_seconds = 0.0
             self.spend_usd = 0.0
             # Keep avg_duration / memory / samples across months — they're
             # calibration, not usage.
@@ -120,6 +126,7 @@ def _load_unlocked(provider: str, path: Path) -> QuotaState:
         month=data.get("month", _current_month_tag()),
         invocations=int(data.get("invocations", 0)),
         gb_seconds=float(data.get("gb_seconds", 0.0)),
+        vcpu_seconds=float(data.get("vcpu_seconds", 0.0)),
         spend_usd=float(data.get("spend_usd", 0.0)),
         avg_duration_s=float(data.get("avg_duration_s", DEFAULT_LAMBDA_DURATION_S)),
         memory_mb=int(data.get("memory_mb", DEFAULT_LAMBDA_MEMORY_MB)),

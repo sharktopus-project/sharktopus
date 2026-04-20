@@ -1,20 +1,22 @@
-name: Build and publish container image
+name: Build and publish container images
 
-# Builds the Lambda/Cloud Run container image (wgrib2 + handler) and
-# publishes it to the public GitHub Container Registry under
-#   ghcr.io/sharktopus-project/sharktopus
+# Builds the two container images (wgrib2 + crop handler) that the
+# sharktopus cloud deployments pull from, and publishes them to the
+# public GitHub Container Registry.
 #
-# Why: end users running `sharktopus deploy aws|gcloud|azure` should not
-# need Docker on their machine. `provision.py` pulls this prebuilt image
-# from the public registry and mirrors it into the user's ECR / Artifact
-# Registry / ACR. The image is public; authentication is only needed to
-# push (handled here via the job's GITHUB_TOKEN).
+# Tags published (per variant):
+#   - :{variant}-latest            (on push to main)
+#   - :{variant}-sha-<short>       (on push to main)
+#   - :{variant}-<ref>             (on git tag v*, e.g. v0.1.0)
+#   - :{variant}-{major}.{minor}   (on git tag v*, e.g. 0.1)
 #
-# Tags published:
-#   - :latest            (on push to main)
-#   - :sha-<short>       (on push to main)
-#   - :<ref>             (on git tag v*, e.g. v0.1.0)
-#   - :<major>.<minor>   (on git tag v*, e.g. 0.1)
+# Where {variant} is either ``lambda`` (deploy/aws/Dockerfile → AWS
+# Lambda, pulled by deploy/aws/provision.py via ECR PTC) or
+# ``cloudrun`` (deploy/gcloud/Dockerfile → Cloud Run, deployed by
+# deploy/gcloud/provision.py via `gcloud run deploy`).
+#
+# End users never build these themselves. `provision.py` just points
+# their cloud account at the right GHCR tag.
 
 on:
   push:
@@ -36,6 +38,17 @@ jobs:
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: lambda
+            context: deploy/aws
+            dockerfile: deploy/aws/Dockerfile
+          - variant: cloudrun
+            context: deploy/gcloud
+            dockerfile: deploy/gcloud/Dockerfile
 
     steps:
       - name: Checkout
@@ -59,20 +72,22 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            prefix=${{ matrix.variant }}-,onlatest=true
           tags: |
             type=ref,event=tag
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-,format=short
+            type=sha,prefix=${{ matrix.variant }}-sha-,format=short
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
-      - name: Build and push
+      - name: Build and push (${{ matrix.variant }})
         uses: docker/build-push-action@v5
         with:
-          context: deploy/aws
-          file: deploy/aws/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}

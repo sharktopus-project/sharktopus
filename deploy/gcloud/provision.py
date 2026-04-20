@@ -105,9 +105,11 @@ def main() -> int:
     if args.dry_run:
         log.info("DRY RUN — nothing will be created.")
         log.info("Would:")
-        log.info("  Enable  : run, storage, iamcredentials APIs")
-        log.info("  Bucket  : gs://%s (7d lifecycle on crops/)", bucket)
-        log.info("  Deploy  : %s (%s, cpu=%s, mem=%s, timeout=%ds, min=%d)",
+        log.info("  Enable   : run, storage, iamcredentials, artifactregistry APIs")
+        log.info("  Bucket   : gs://%s (7d lifecycle on crops/)", bucket)
+        log.info("  AR proxy : %s-docker.pkg.dev/%s/%s → https://ghcr.io",
+                 args.region, args.project, AR_REPO_NAME)
+        log.info("  Deploy   : %s (via proxy, %s, cpu=%s, mem=%s, timeout=%ds, min=%d)",
                  SERVICE_NAME, image, SERVICE_CPU, SERVICE_MEMORY,
                  SERVICE_TIMEOUT_S, args.min_instances)
         return 0
@@ -115,8 +117,9 @@ def main() -> int:
     _ensure_gcloud_cli()
     ensure_apis(args.project)
     ensure_bucket(args.project, bucket)
+    deploy_image = ensure_ghcr_proxy(args.project, args.region, args.image_tag)
     url = deploy_service(
-        args.project, args.region, image, bucket,
+        args.project, args.region, deploy_image, bucket,
         min_instances=args.min_instances,
         allow_unauthenticated=not args.authenticated_only,
     )
@@ -163,14 +166,64 @@ def _gcloud(args: list[str], *, project: str | None = None, capture: bool = True
 
 
 def ensure_apis(project: str) -> None:
-    """Enable the three APIs the service depends on (idempotent)."""
+    """Enable the four APIs the service depends on (idempotent)."""
     apis = [
         "run.googleapis.com",
         "storage.googleapis.com",
         "iamcredentials.googleapis.com",
+        "artifactregistry.googleapis.com",
     ]
     log.info("Enabling APIs: %s", ", ".join(apis))
     _gcloud(["services", "enable", *apis], project=project, capture=False)
+
+
+# Remote-repository name inside Artifact Registry. One-shot proxy: AR
+# pulls `sharktopus-project/sharktopus:<tag>` from GHCR on first demand
+# and caches the layers. Cloud Run can then deploy from this AR URL.
+AR_REPO_NAME = os.environ.get("SHARKTOPUS_AR_REPO", "ghcr-proxy")
+
+
+def ensure_ghcr_proxy(project: str, region: str, image_tag: str) -> str:
+    """Create (idempotent) an AR remote repository proxying GHCR.
+
+    Returns the Cloud Run-compatible image URL that Cloud Run will pull
+    from — shaped like
+    ``<region>-docker.pkg.dev/<project>/ghcr-proxy/sharktopus-project/sharktopus:<tag>``.
+    AR fetches the layers from ghcr.io on first pull, caches them, and
+    serves them to Cloud Run thereafter.
+
+    Cloud Run rejects direct ``ghcr.io/...`` image URLs — it only accepts
+    ``gcr.io``, ``<region>-docker.pkg.dev``, and ``docker.io``. This
+    proxy is the GCloud analogue of the AWS ECR Pull-Through Cache used
+    on the AWS side.
+    """
+    # Probe existence first — skip the create if already there.
+    r = subprocess.run(
+        ["gcloud", "artifacts", "repositories", "describe", AR_REPO_NAME,
+         "--location", region, "--project", project, "--quiet"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        log.info("Creating AR remote repository %s/%s → ghcr.io",
+                 region, AR_REPO_NAME)
+        _gcloud(
+            [
+                "artifacts", "repositories", "create", AR_REPO_NAME,
+                "--repository-format=docker",
+                "--location", region,
+                "--mode=remote-repository",
+                "--remote-repo-config-desc=GHCR proxy for sharktopus",
+                "--remote-docker-repo=https://ghcr.io",
+            ],
+            project=project, capture=False,
+        )
+    else:
+        log.info("AR remote repository %s/%s already exists", region, AR_REPO_NAME)
+
+    # GHCR path `sharktopus-project/sharktopus` maps 1:1 under the proxy.
+    # The `GHCR_IMAGE` env points at `ghcr.io/<owner>/<repo>` — strip the host.
+    ghcr_path = GHCR_IMAGE.split("ghcr.io/", 1)[-1]
+    return f"{region}-docker.pkg.dev/{project}/{AR_REPO_NAME}/{ghcr_path}:{image_tag}"
 
 
 def ensure_bucket(project: str, bucket: str) -> None:

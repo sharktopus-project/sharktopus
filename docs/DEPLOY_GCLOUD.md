@@ -51,8 +51,10 @@ the `SHARKTOPUS_GCLOUD_INVOKER_SA` env var to export.
 > **Unverified app warning.** Until Google finishes verifying the
 > sharktopus OAuth app, the consent screen shows a yellow "Google
 > hasn't verified this app" banner. Click *Advanced → Go to sharktopus
-> (unsafe)* to proceed during the verification window. Verification is
-> tracked as a separate task.
+> (unsafe)* to proceed during the verification window. See
+> [`OAUTH_VERIFICATION.md`](OAUTH_VERIFICATION.md) for the
+> submission runbook; until it completes the app stays in Testing
+> mode with a 2-user allowlist.
 
 Pre-req: a Python install with `google-auth-oauthlib` (see Step 1b).
 

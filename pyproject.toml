@@ -26,8 +26,14 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+test = ["pytest>=7", "httpx>=0.24"]
 xarray = ["cfgrib", "xarray"]
+ui = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+]
 
 [project.scripts]
 sharktopus = "sharktopus.cli:main"
@@ -43,7 +49,13 @@ packages = ["src/sharktopus"]
 # Binary wgrib2 lives in src/sharktopus/_bin/ and is dropped there at build
 # time by scripts/bundle_wgrib2.sh. When the dir is empty (sdist / source
 # install) the wheel is pure-Python and users must have wgrib2 on PATH.
-artifacts = ["src/sharktopus/_bin/wgrib2*"]
+# webui/templates + webui/static are always bundled — needed at runtime.
+artifacts = [
+    "src/sharktopus/_bin/wgrib2*",
+    "src/sharktopus/webui/templates/**/*.html",
+    "src/sharktopus/webui/static/**/*",
+    "src/sharktopus/webui/data/**/*.json",
+]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 # See hatch_build.py — flips the wheel to platform-specific when a wgrib2

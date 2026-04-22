@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}sharktopus{% endblock %}</title>
+  <link rel="icon" href="/static/img/favicon.ico">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/css/app.css?v={{ asset_version() }}">
+  <script defer src="/static/js/htmx.min.js?v={{ asset_version() }}"></script>
+  <script defer src="/static/js/app.js?v={{ asset_version() }}"></script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/" aria-label="sharktopus home">
+    <img class="brand-mark" src="/static/img/mark-sm.png"
+         alt="sharktopus shark-with-tentacles mark">
+    <span class="brand-name">sharktopus</span>
+    <span class="brand-tag">cloud-native GFS cropper</span>
+  </a>
+  <nav class="topnav" aria-label="primary">
+    {% for item in nav_items %}
+    <a href="{{ item.path }}"
+       class="navlink {% if item.path == active_path or (item.path != '/' and active_path.startswith(item.path)) %}is-active{% endif %}">
+      <span class="navlink-label">{{ item.label }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+</header>
+
+<main class="page">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <div class="footer-credits">
+    <p class="footer-lede">
+      sharktopus is open-source infrastructure built in support of the
+      <strong>CONVECT</strong> research project
+      (&ldquo;Previsão de sistemas convectivos&rdquo; &mdash;
+      CNPq Chamada Eventos Extremos 15/2023,
+      coord. Dra.&nbsp;Tânia Ocimoto Oda).
+    </p>
+    <p class="footer-note">
+      Independent project · MIT-licensed ·
+      not a product of any listed institution.
+    </p>
+  </div>
+  <ul class="footer-logos" aria-label="supporting institutions">
+    {% for inst in footer_institutions %}
+    <li>
+      <a href="{{ inst.href }}" target="_blank" rel="noopener"
+         title="{{ inst.alt }}">
+        <img src="{{ inst.logo }}" alt="{{ inst.alt }}" loading="lazy">
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</footer>
+
+</body>
+</html>

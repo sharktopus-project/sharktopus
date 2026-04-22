@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — job {{ job.id }}{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Job #{{ job.id }} — {{ job.name }}</h2>
+    <div class="section-actions">
+      <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+      {% if job.status in ('running', 'queued') %}
+      <button class="btn btn-sm btn-danger"
+              hx-post="/api/jobs/{{ job.id }}/cancel"
+              hx-swap="none"
+              hx-confirm="Cancel this job?">Cancel</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div id="job-live"
+       hx-get="/api/jobs/{{ job.id }}/fragment"
+       hx-trigger="load, every 2s"
+       hx-swap="innerHTML">
+    {% include "partials/job_live.html" %}
+  </div>
+</section>
+
+<section class="section">
+  <details>
+    <summary>Form payload (JSON)</summary>
+    <pre class="code">{{ form_json }}</pre>
+  </details>
+</section>
+
+{% endblock %}

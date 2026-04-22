@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — quota{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Cloud quota</h2>
+    <p class="section-sub">Running total of Lambda / Cloud Run / Container Apps usage against each provider's free tier.</p>
+  </div>
+
+  <div class="cards">
+    {% for p in providers %}
+    <div class="card">
+      <h3>{{ p.name }}</h3>
+      <pre class="code">{{ p.report }}</pre>
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="hint">
+    Paid-tier usage is blocked unless <code>SHARKTOPUS_ACCEPT_CHARGES=1</code>
+    is set (see <a href="/settings">Settings</a>).
+  </p>
+</section>
+
+{% endblock %}

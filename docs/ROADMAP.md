@@ -8,20 +8,25 @@ CONVECT radar-DA pipeline) before the next layer starts.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ 5. CLI & Menu interactive    (sharktopus.cli)                │
+│ 5. CLI & WebUI                (sharktopus.cli, .webui)       │
 ├──────────────────────────────────────────────────────────────┤
 │ 4. Serverless deploy  [extra] (sharktopus.deploy)            │
 ├──────────────────────────────────────────────────────────────┤
-│ 3. Serverless invoke  [extra] (sharktopus.cloud)             │
+│ 3. Serverless invoke  [extra] (sharktopus.cloud + *_crop)    │
 ├──────────────────────────────────────────────────────────────┤
-│ 2. Orchestrator fetch        (sharktopus.fetch)              │
+│ 2. Orchestrator fetch        (sharktopus.batch)              │
 ├──────────────────────────────────────────────────────────────┤
 │ 1. Local sources             (sharktopus.sources.*)          │
 ├──────────────────────────────────────────────────────────────┤
-│ 0. wgrib2 + .idx utilities   (sharktopus.grib)
+│ 0. wgrib2 + .idx utilities   (sharktopus.io.grib)
 └──────────────────────────────────────────────────────────────┘
        ← Layers 0–5 done for AWS + GCloud + Azure — all three live.
+         WebUI ships the multi-product foundation (2026-04-21);
+         GFS 0.25° is the only product registered today.
 ```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the product-agnostic core
+vs. product-specific adapter split.
 
 ## Layer 0 — `sharktopus.grib` — DONE (v0.0.1)
 
@@ -109,3 +114,45 @@ names, reads INI config via `sharktopus.config`, and runs everything
 through `fetch_batch`. Adds `--list-sources`, `--availability`,
 `--quota {aws,gcloud,azure}`, and `--setup {gcloud,aws,azure}` for
 introspection and bootstrap.
+
+## Layer 5b — `sharktopus.webui` — DONE (milestones M0–M7, M11 landed; M8–M10, M12 pending)
+
+Local FastAPI + Jinja + HTMX web UI (`sharktopus --ui`). No-JS-framework
+on purpose; vendored `htmx.min.js` and Leaflet for the bbox picker. See
+`CHANGELOG.md` for the per-milestone detail.
+
+- M0 ✅ Scaffold (FastAPI, SQLite jobs DB, `--ui` entry point).
+- M1 ✅ Submit + Jobs pages + JobRunner.
+- M2 ✅ Inventory page with cache ingest.
+- M3 ✅ Quota page with spend charts.
+- M4 ✅ Leaflet map picker for bbox.
+- M5 ✅ Variable/level pickers with presets.
+- M6 ✅ Source priority drag-and-drop + availability probes.
+- M7 ✅ Credentials page (view/rotate/clear).
+- M8 ⏳ Setup Wizard GCloud (8 steps, streaming logs).
+- M9 ⏳ Setup Wizard AWS.
+- M10 ⏳ Setup Wizard Azure.
+- M11 ✅ Settings page + Help/Docs inline.
+- M12 ⏳ Polish (theme, empty states, skeletons, a11y).
+
+## Multi-product foundation — DONE (2026-04-21)
+
+Before this change the WebUI assumed GFS 0.25° exclusively. Post-change:
+
+- `sharktopus.webui.products.Product` registry — frozen dataclass +
+  `PRODUCTS` tuple. Adding a new product is a single entry (see
+  [ADDING_A_PRODUCT.md](ADDING_A_PRODUCT.md)).
+- Per-product catalog JSONs under
+  `src/sharktopus/webui/data/products/`. `~/.cache/sharktopus/products/`
+  is an override path — edit locally, no rebuild needed.
+- Submit form's product field is a `<select>` populated from the
+  registry; changing it re-fetches `/api/catalog?product=<id>` and
+  swaps the variable/level picker live.
+- Public positioning shifted from "GFS cropper" to "GRIB cropper —
+  GFS today." See `README.md` and `site/index.html`.
+
+**Pipeline for future products** (not yet implemented):
+GFS 0.5°, GFS secondary (pgrb2b), HRRR, NAM-CONUS, RAP, ECMWF open-data.
+Each requires a `Product(...)` entry, a catalog JSON, and either a new
+`sources/<mirror>_<model>.py` or a `product`-keyed branch in the
+existing source module.

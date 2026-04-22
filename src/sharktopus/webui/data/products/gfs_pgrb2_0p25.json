@@ -1,0 +1,536 @@
+{
+  "version": "2026-04-21",
+  "product": "pgrb2.0p25",
+  "source": "GFS v16 (NCEP operational)",
+  "note": "Bundled catalog derived from a public GFS pgrb2.0p25 inventory. Refresh with scripts/generate_gfs_catalog.py against a fresh wgrib2 -s dump.",
+  "level_groups": [
+    {
+      "name": "Near-surface",
+      "levels": [
+        "surface",
+        "mean sea level",
+        "2 m above ground",
+        "10 m above ground",
+        "80 m above ground",
+        "100 m above ground",
+        "0.995 sigma level",
+        "planetary boundary layer"
+      ]
+    },
+    {
+      "name": "Isobaric — troposphere",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb",
+        "850 mb", "800 mb", "750 mb", "700 mb", "650 mb",
+        "600 mb", "550 mb", "500 mb", "450 mb", "400 mb",
+        "350 mb", "300 mb", "250 mb", "200 mb", "150 mb",
+        "100 mb"
+      ]
+    },
+    {
+      "name": "Isobaric — stratosphere",
+      "levels": [
+        "70 mb", "50 mb", "40 mb", "30 mb", "20 mb",
+        "15 mb", "10 mb", "7 mb", "5 mb", "3 mb",
+        "2 mb", "1 mb", "0.7 mb", "0.4 mb", "0.2 mb",
+        "0.1 mb", "0.07 mb", "0.04 mb", "0.02 mb", "0.01 mb"
+      ]
+    },
+    {
+      "name": "Soil",
+      "levels": [
+        "0-0.1 m below ground",
+        "0.1-0.4 m below ground",
+        "0.4-1 m below ground",
+        "1-2 m below ground"
+      ]
+    },
+    {
+      "name": "Atmosphere column",
+      "levels": [
+        "entire atmosphere",
+        "entire atmosphere (considered as a single layer)",
+        "180-0 mb above ground",
+        "255-0 mb above ground",
+        "3000-0 m above ground",
+        "1000-0 m above ground",
+        "1000 m above ground",
+        "4000 m above ground"
+      ]
+    },
+    {
+      "name": "Tropopause / max wind / clouds",
+      "levels": [
+        "tropopause",
+        "max wind",
+        "highest tropospheric freezing level",
+        "0C isotherm",
+        "low cloud layer", "middle cloud layer", "high cloud layer",
+        "low cloud top level", "middle cloud top level", "high cloud top level",
+        "low cloud bottom level", "middle cloud bottom level", "high cloud bottom level",
+        "convective cloud layer",
+        "convective cloud top level",
+        "convective cloud bottom level"
+      ]
+    }
+  ],
+  "variables": [
+    {
+      "name": "TMP", "desc": "Temperature", "unit": "K", "category": "Thermodynamic",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb", "70 mb", "50 mb", "40 mb",
+        "30 mb", "20 mb", "15 mb", "10 mb", "7 mb", "5 mb", "3 mb", "2 mb",
+        "1 mb", "0.7 mb", "0.4 mb", "0.2 mb", "0.1 mb", "0.07 mb", "0.04 mb", "0.02 mb", "0.01 mb",
+        "surface", "2 m above ground", "80 m above ground",
+        "0.995 sigma level",
+        "tropopause", "max wind"
+      ]
+    },
+    {
+      "name": "UGRD", "desc": "U-component of wind (zonal)", "unit": "m s-1", "category": "Wind",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb", "70 mb", "50 mb", "40 mb",
+        "30 mb", "20 mb", "15 mb", "10 mb", "7 mb", "5 mb", "3 mb", "2 mb",
+        "1 mb", "0.7 mb", "0.4 mb", "0.2 mb", "0.1 mb", "0.07 mb", "0.04 mb", "0.02 mb", "0.01 mb",
+        "10 m above ground", "80 m above ground", "100 m above ground",
+        "0.995 sigma level",
+        "tropopause", "max wind",
+        "planetary boundary layer"
+      ]
+    },
+    {
+      "name": "VGRD", "desc": "V-component of wind (meridional)", "unit": "m s-1", "category": "Wind",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb", "70 mb", "50 mb", "40 mb",
+        "30 mb", "20 mb", "15 mb", "10 mb", "7 mb", "5 mb", "3 mb", "2 mb",
+        "1 mb", "0.7 mb", "0.4 mb", "0.2 mb", "0.1 mb", "0.07 mb", "0.04 mb", "0.02 mb", "0.01 mb",
+        "10 m above ground", "80 m above ground", "100 m above ground",
+        "0.995 sigma level",
+        "tropopause", "max wind",
+        "planetary boundary layer"
+      ]
+    },
+    {
+      "name": "HGT", "desc": "Geopotential height", "unit": "gpm", "category": "Mass",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb", "70 mb", "50 mb", "40 mb",
+        "30 mb", "20 mb", "15 mb", "10 mb", "7 mb", "5 mb", "3 mb", "2 mb",
+        "1 mb", "0.7 mb", "0.4 mb", "0.2 mb", "0.1 mb", "0.07 mb", "0.04 mb", "0.02 mb", "0.01 mb",
+        "surface",
+        "tropopause", "max wind",
+        "highest tropospheric freezing level",
+        "0C isotherm",
+        "planetary boundary layer",
+        "low cloud top level", "middle cloud top level", "high cloud top level",
+        "low cloud bottom level", "middle cloud bottom level", "high cloud bottom level",
+        "convective cloud top level", "convective cloud bottom level"
+      ]
+    },
+    {
+      "name": "RH", "desc": "Relative humidity", "unit": "%", "category": "Moisture",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb", "70 mb", "50 mb", "40 mb",
+        "30 mb", "20 mb", "15 mb", "10 mb", "7 mb", "5 mb", "3 mb", "2 mb",
+        "1 mb", "0.7 mb", "0.4 mb", "0.2 mb", "0.1 mb", "0.07 mb", "0.04 mb", "0.02 mb", "0.01 mb",
+        "2 m above ground",
+        "0.995 sigma level",
+        "entire atmosphere (considered as a single layer)",
+        "highest tropospheric freezing level"
+      ]
+    },
+    {
+      "name": "SPFH", "desc": "Specific humidity", "unit": "kg kg-1", "category": "Moisture",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb",
+        "2 m above ground", "80 m above ground"
+      ]
+    },
+    {
+      "name": "VVEL", "desc": "Vertical velocity (pressure)", "unit": "Pa s-1", "category": "Wind",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb"
+      ]
+    },
+    {
+      "name": "DZDT", "desc": "Vertical velocity (geometric)", "unit": "m s-1", "category": "Wind",
+      "levels": ["0.995 sigma level"]
+    },
+    {
+      "name": "ABSV", "desc": "Absolute vorticity", "unit": "s-1", "category": "Wind",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb", "70 mb", "50 mb", "40 mb",
+        "30 mb", "20 mb", "15 mb", "10 mb", "7 mb", "5 mb", "3 mb", "2 mb", "1 mb"
+      ]
+    },
+    {
+      "name": "CLWMR", "desc": "Cloud mixing ratio (liquid)", "unit": "kg kg-1", "category": "Cloud",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb"
+      ]
+    },
+    {
+      "name": "ICMR", "desc": "Ice water mixing ratio", "unit": "kg kg-1", "category": "Cloud",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb"
+      ]
+    },
+    {
+      "name": "RWMR", "desc": "Rain mixing ratio", "unit": "kg kg-1", "category": "Cloud",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb"
+      ]
+    },
+    {
+      "name": "SNMR", "desc": "Snow mixing ratio", "unit": "kg kg-1", "category": "Cloud",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb"
+      ]
+    },
+    {
+      "name": "GRLE", "desc": "Graupel (snow pellets)", "unit": "kg kg-1", "category": "Cloud",
+      "levels": [
+        "1000 mb", "975 mb", "950 mb", "925 mb", "900 mb", "850 mb", "800 mb", "750 mb",
+        "700 mb", "650 mb", "600 mb", "550 mb", "500 mb", "450 mb", "400 mb", "350 mb",
+        "300 mb", "250 mb", "200 mb", "150 mb", "100 mb"
+      ]
+    },
+    {
+      "name": "O3MR", "desc": "Ozone mixing ratio", "unit": "kg kg-1", "category": "Atmospheric chemistry",
+      "levels": [
+        "100 mb", "70 mb", "50 mb", "40 mb", "30 mb", "20 mb", "15 mb", "10 mb",
+        "7 mb", "5 mb", "3 mb", "2 mb", "1 mb", "0.7 mb", "0.4 mb", "0.2 mb",
+        "0.1 mb", "0.07 mb", "0.04 mb", "0.02 mb", "0.01 mb"
+      ]
+    },
+    {
+      "name": "PRES", "desc": "Pressure", "unit": "Pa", "category": "Mass",
+      "levels": [
+        "surface", "80 m above ground",
+        "tropopause", "max wind",
+        "planetary boundary layer",
+        "low cloud top level", "middle cloud top level", "high cloud top level",
+        "low cloud bottom level", "middle cloud bottom level", "high cloud bottom level",
+        "convective cloud top level", "convective cloud bottom level"
+      ]
+    },
+    {
+      "name": "PRMSL", "desc": "Pressure reduced to MSL", "unit": "Pa", "category": "Mass",
+      "levels": ["mean sea level"]
+    },
+    {
+      "name": "MSLET", "desc": "MSL pressure (Eta reduction)", "unit": "Pa", "category": "Mass",
+      "levels": ["mean sea level"]
+    },
+    {
+      "name": "DPT", "desc": "Dew point temperature", "unit": "K", "category": "Moisture",
+      "levels": ["2 m above ground"]
+    },
+    {
+      "name": "APTMP", "desc": "Apparent temperature", "unit": "K", "category": "Thermodynamic",
+      "levels": ["2 m above ground"]
+    },
+    {
+      "name": "TMAX", "desc": "Maximum temperature (period)", "unit": "K", "category": "Thermodynamic",
+      "levels": ["2 m above ground"]
+    },
+    {
+      "name": "TMIN", "desc": "Minimum temperature (period)", "unit": "K", "category": "Thermodynamic",
+      "levels": ["2 m above ground"]
+    },
+    {
+      "name": "WIND", "desc": "Wind speed", "unit": "m s-1", "category": "Wind",
+      "levels": ["10 m above ground"]
+    },
+    {
+      "name": "GUST", "desc": "Wind gust", "unit": "m s-1", "category": "Wind",
+      "levels": ["surface"]
+    },
+    {
+      "name": "VWSH", "desc": "Vertical wind shear", "unit": "s-1", "category": "Wind",
+      "levels": ["tropopause", "potential vorticity surface"]
+    },
+    {
+      "name": "HLCY", "desc": "Storm-relative helicity", "unit": "m2 s-2", "category": "Severe weather",
+      "levels": ["3000-0 m above ground", "1000-0 m above ground"]
+    },
+    {
+      "name": "USTM", "desc": "U-component storm motion", "unit": "m s-1", "category": "Severe weather",
+      "levels": ["6000-0 m above ground"]
+    },
+    {
+      "name": "VSTM", "desc": "V-component storm motion", "unit": "m s-1", "category": "Severe weather",
+      "levels": ["6000-0 m above ground"]
+    },
+    {
+      "name": "CAPE", "desc": "Convective available potential energy", "unit": "J kg-1", "category": "Severe weather",
+      "levels": [
+        "surface",
+        "180-0 mb above ground",
+        "255-0 mb above ground"
+      ]
+    },
+    {
+      "name": "CIN", "desc": "Convective inhibition", "unit": "J kg-1", "category": "Severe weather",
+      "levels": [
+        "surface",
+        "180-0 mb above ground",
+        "255-0 mb above ground"
+      ]
+    },
+    {
+      "name": "LFTX", "desc": "Surface lifted index", "unit": "K", "category": "Severe weather",
+      "levels": ["surface"]
+    },
+    {
+      "name": "4LFTX", "desc": "Best (4-layer) lifted index", "unit": "K", "category": "Severe weather",
+      "levels": ["surface"]
+    },
+    {
+      "name": "PWAT", "desc": "Precipitable water", "unit": "kg m-2", "category": "Moisture",
+      "levels": ["entire atmosphere (considered as a single layer)"]
+    },
+    {
+      "name": "CWAT", "desc": "Cloud water", "unit": "kg m-2", "category": "Cloud",
+      "levels": ["entire atmosphere (considered as a single layer)"]
+    },
+    {
+      "name": "CWORK", "desc": "Cloud work function", "unit": "J kg-1", "category": "Cloud",
+      "levels": ["entire atmosphere (considered as a single layer)"]
+    },
+    {
+      "name": "TCDC", "desc": "Total cloud cover", "unit": "%", "category": "Cloud",
+      "levels": [
+        "entire atmosphere",
+        "entire atmosphere (considered as a single layer)",
+        "boundary layer cloud layer",
+        "low cloud layer", "middle cloud layer", "high cloud layer",
+        "convective cloud layer"
+      ]
+    },
+    {
+      "name": "LCDC", "desc": "Low cloud cover", "unit": "%", "category": "Cloud",
+      "levels": ["low cloud layer"]
+    },
+    {
+      "name": "MCDC", "desc": "Middle cloud cover", "unit": "%", "category": "Cloud",
+      "levels": ["middle cloud layer"]
+    },
+    {
+      "name": "HCDC", "desc": "High cloud cover", "unit": "%", "category": "Cloud",
+      "levels": ["high cloud layer"]
+    },
+    {
+      "name": "CDCON", "desc": "Convective cloud cover", "unit": "%", "category": "Cloud",
+      "levels": ["entire atmosphere (considered as a single layer)"]
+    },
+    {
+      "name": "CPRAT", "desc": "Convective precipitation rate", "unit": "kg m-2 s-1", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "PRATE", "desc": "Precipitation rate", "unit": "kg m-2 s-1", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "APCP", "desc": "Total precipitation (accumulated)", "unit": "kg m-2", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "ACPCP", "desc": "Convective precipitation (accumulated)", "unit": "kg m-2", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "NCPCP", "desc": "Large-scale precipitation (non-conv)", "unit": "kg m-2", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "WEASD", "desc": "Water equivalent of accumulated snow", "unit": "kg m-2", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "SNOD", "desc": "Snow depth", "unit": "m", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "CSNOW", "desc": "Categorical snow (0/1)", "unit": "-", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "CICEP", "desc": "Categorical ice pellets (0/1)", "unit": "-", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "CFRZR", "desc": "Categorical freezing rain (0/1)", "unit": "-", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "CRAIN", "desc": "Categorical rain (0/1)", "unit": "-", "category": "Precipitation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "ICEC", "desc": "Ice cover", "unit": "fraction", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "ICETK", "desc": "Ice thickness", "unit": "m", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "LAND", "desc": "Land-sea mask", "unit": "0/1", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "VIS", "desc": "Visibility", "unit": "m", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "SUNSD", "desc": "Sunshine duration", "unit": "s", "category": "Radiation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "HINDEX", "desc": "Haines index (fire weather)", "unit": "-", "category": "Fire weather",
+      "levels": ["surface"]
+    },
+    {
+      "name": "HPBL", "desc": "Planetary boundary layer height", "unit": "m", "category": "Boundary layer",
+      "levels": ["surface"]
+    },
+    {
+      "name": "TSOIL", "desc": "Soil temperature", "unit": "K", "category": "Soil",
+      "levels": [
+        "0-0.1 m below ground",
+        "0.1-0.4 m below ground",
+        "0.4-1 m below ground",
+        "1-2 m below ground"
+      ]
+    },
+    {
+      "name": "SOILW", "desc": "Volumetric soil moisture", "unit": "fraction", "category": "Soil",
+      "levels": [
+        "0-0.1 m below ground",
+        "0.1-0.4 m below ground",
+        "0.4-1 m below ground",
+        "1-2 m below ground"
+      ]
+    },
+    {
+      "name": "SOILL", "desc": "Liquid volumetric soil moisture", "unit": "fraction", "category": "Soil",
+      "levels": [
+        "0-0.1 m below ground",
+        "0.1-0.4 m below ground",
+        "0.4-1 m below ground",
+        "1-2 m below ground"
+      ]
+    },
+    {
+      "name": "SFEXC", "desc": "Exchange coefficient", "unit": "kg m-2 s-1", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "VEG", "desc": "Vegetation", "unit": "%", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "CNWAT", "desc": "Plant canopy surface water", "unit": "kg m-2", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "REFC", "desc": "Composite reflectivity", "unit": "dB", "category": "Radar",
+      "levels": ["entire atmosphere"]
+    },
+    {
+      "name": "REFD", "desc": "Derived radar reflectivity", "unit": "dB", "category": "Radar",
+      "levels": [
+        "1000 m above ground",
+        "4000 m above ground"
+      ]
+    },
+    {
+      "name": "MAXREF", "desc": "Maximum 1 km radar reflectivity (hourly max)", "unit": "dB", "category": "Radar",
+      "levels": ["1000 m above ground"]
+    },
+    {
+      "name": "MXUPHL", "desc": "Max updraft helicity (hourly)", "unit": "m2 s-2", "category": "Severe weather",
+      "levels": ["5000-2000 m above ground"]
+    },
+    {
+      "name": "MNUPHL", "desc": "Min updraft helicity (hourly)", "unit": "m2 s-2", "category": "Severe weather",
+      "levels": ["5000-2000 m above ground"]
+    },
+    {
+      "name": "DSWRF", "desc": "Downward short-wave radiation flux", "unit": "W m-2", "category": "Radiation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "USWRF", "desc": "Upward short-wave radiation flux", "unit": "W m-2", "category": "Radiation",
+      "levels": ["surface", "top of atmosphere"]
+    },
+    {
+      "name": "DLWRF", "desc": "Downward long-wave radiation flux", "unit": "W m-2", "category": "Radiation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "ULWRF", "desc": "Upward long-wave radiation flux", "unit": "W m-2", "category": "Radiation",
+      "levels": ["surface", "top of atmosphere"]
+    },
+    {
+      "name": "SHTFL", "desc": "Sensible heat net flux", "unit": "W m-2", "category": "Radiation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "LHTFL", "desc": "Latent heat net flux", "unit": "W m-2", "category": "Radiation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "GFLUX", "desc": "Ground heat flux", "unit": "W m-2", "category": "Radiation",
+      "levels": ["surface"]
+    },
+    {
+      "name": "UFLX", "desc": "Momentum flux, u-component", "unit": "N m-2", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "VFLX", "desc": "Momentum flux, v-component", "unit": "N m-2", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "ALBDO", "desc": "Albedo", "unit": "%", "category": "Surface",
+      "levels": ["surface"]
+    },
+    {
+      "name": "TOZNE", "desc": "Total ozone", "unit": "Dobson", "category": "Atmospheric chemistry",
+      "levels": ["entire atmosphere (considered as a single layer)"]
+    },
+    {
+      "name": "ICAHT", "desc": "ICAO standard atm height", "unit": "m", "category": "Aviation",
+      "levels": ["tropopause", "max wind"]
+    },
+    {
+      "name": "FRICV", "desc": "Friction velocity", "unit": "m s-1", "category": "Boundary layer",
+      "levels": ["surface"]
+    }
+  ]
+}

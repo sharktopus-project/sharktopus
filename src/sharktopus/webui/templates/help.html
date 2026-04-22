@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — help{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head"><h2>Help &amp; documentation</h2></div>
+
+  <div class="cards">
+    <div class="card">
+      <h3>Quick start</h3>
+      <pre class="code">pip install "sharktopus[ui]"
+sharktopus --ui
+
+# or from the command line:
+sharktopus \
+  --start 2024010200 --end 2024010318 --step 6 \
+  --ext 24 --interval 3 \
+  --lat-s -28 --lat-n -18 --lon-w -48 --lon-e -36</pre>
+    </div>
+
+    <div class="card">
+      <h3>What the UI does</h3>
+      <ul>
+        <li><a href="/submit">Submit</a> — every CLI flag on a form.</li>
+        <li><a href="/jobs">Jobs</a> — live progress, logs, cancel.</li>
+        <li><a href="/inventory">Inventory</a> — what's on disk.</li>
+        <li><a href="/quota">Quota</a> — AWS / GCloud / Azure free-tier gauges.</li>
+        <li><a href="/sources">Sources</a> — registered mirrors + availability.</li>
+        <li><a href="/setup">Setup</a> — per-cloud provisioning wizards.</li>
+        <li><a href="/credentials">Credentials</a> — what each provider can see.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Links</h3>
+      <ul>
+        <li><a href="https://github.com/sharktopus-project/sharktopus" target="_blank" rel="noopener">Source code (GitHub)</a></li>
+        <li><a href="https://sharktopus.leandrometeoro.com.br/" target="_blank" rel="noopener">Public site</a></li>
+        <li><a href="https://sharktopus.leandrometeoro.com.br/privacy" target="_blank" rel="noopener">Privacy policy</a></li>
+        <li><a href="https://sharktopus.leandrometeoro.com.br/terms" target="_blank" rel="noopener">Terms of service</a></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Common recipes</h3>
+      <p><strong>WRF-canonical (13 vars × 49 levels):</strong> leave variables/levels empty on Submit — the form auto-fills.</p>
+      <p><strong>Historical run (pre-2021):</strong> priority <code>rda</code>.</p>
+      <p><strong>Large-bbox quick test:</strong> priority <code>aws_crop</code>, no <code>nomads_filter</code>.</p>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

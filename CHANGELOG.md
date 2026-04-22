@@ -4,6 +4,46 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+### Added
+- **Multi-product foundation in the WebUI** (2026-04-21). Introduces a
+  `sharktopus.webui.products.Product` registry and per-product catalog
+  JSONs under `src/sharktopus/webui/data/products/`. The Submit form's
+  product field is now a `<select>` populated from the registry; when
+  the user changes product, the UI re-fetches
+  `/api/catalog?product=<id>` and hot-swaps the variable/level picker
+  (pruning any selections no longer in the new catalog). A per-product
+  override at `~/.cache/sharktopus/products/<file>.json` lets power
+  users update catalogs without rebuilding the wheel. GFS 0.25° is the
+  only product registered today; the design is explicitly extensible
+  for GFS 0.5°, GFS secondary (pgrb2b), HRRR, NAM, RAP, and ECMWF
+  open-data.
+- **Product picker drives the Submit form end-to-end** (2026-04-21).
+  The Product fieldset moved to the top of the form and now steers
+  four other fields as the user switches model: (a) the Leaflet bbox
+  map clamps to `product.default_bbox` with a dashed coverage rectangle
+  (world-extent treated as "global"); (b) the Dates & cycles pickers'
+  `min` and year-menu floor jump to the earliest `EARLIEST` across the
+  product's sources; (c) the Sources chip pool hides any source not in
+  `product.sources` (empty tuple = all); (d) the variables/levels
+  catalog reloads as before. GFS 0.25° declares explicit global
+  coverage `(-90, 90, -180, 180)` and an empty source allowlist, so
+  visible behaviour is unchanged — the wiring is for adding HRRR, NAM,
+  etc. without touching the form.
+- **Architecture + contributor docs.** New `docs/ARCHITECTURE.md`
+  explains the product-agnostic core (batch orchestrator, priority,
+  spread queue, wgrib2 wrappers, WebUI framework) vs. product-specific
+  adapters (source `build_url()`, catalog JSON, cloud handler). New
+  `docs/ADDING_A_PRODUCT.md` is a worked HRRR example walking through
+  the five files a contributor touches.
+- **Public positioning: "GRIB cropper — GFS today."** `README.md` and
+  `site/index.html` now describe sharktopus as a generic cloud-native
+  GRIB2 cropper whose core is product-agnostic, with GFS 0.25° as the
+  shipped product and HRRR / NAM / RAP / ECMWF open-data as roadmap.
+  Rationale: the library's value proposition (crop-before-download,
+  multi-cloud, free-tier friendly) generalises beyond GFS; narrowing
+  to "GFS cropper" under-sells the architecture and discourages
+  contributors from adding adjacent products.
+
 ### Verified live
 - **Azure Container App live on megashark's Azure subscription** —
   `sharktopus-crop` at `https://sharktopus-crop.ashyhill-35d1f7dd.

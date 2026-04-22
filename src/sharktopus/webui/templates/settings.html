@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — settings{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head"><h2>Settings</h2></div>
+
+  <div class="card">
+    <h3>Environment</h3>
+    <dl class="kv">
+      {% for k, v in env.items() %}
+      <dt>{{ k }}</dt><dd><code>{{ v }}</code></dd>
+      {% endfor %}
+    </dl>
+    <p class="hint">
+      Export these before launching the UI to change behavior:
+      <code>SHARKTOPUS_DATA=/gfsdata sharktopus --ui</code>.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>About</h3>
+    <p>
+      sharktopus is an open-source Python library (MIT-licensed) that
+      crops GFS GRIB2 files close to the source before downloading.
+      Source: <a href="https://github.com/sharktopus-project/sharktopus" target="_blank" rel="noopener">GitHub</a>.
+    </p>
+    <p>
+      Built in support of the <strong>CONVECT</strong> research project
+      (CNPq Chamada Eventos Extremos 15/2023), coord.
+      Dra.&nbsp;Tânia&nbsp;Ocimoto&nbsp;Oda, at IEAPM, with UENF and UFPR
+      as academic partners. sharktopus itself is not a product of any
+      listed institution.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

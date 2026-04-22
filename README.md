@@ -1,20 +1,29 @@
 # sharktopus
 
-Download and crop GFS forecast data. Local sources first (NOMADS, AWS Open Data,
-Google Cloud, Azure Blob); serverless cloud recortador is an optional second
-layer for free-tier distributed cropping.
+Cloud-native **GRIB cropper** — crop GRIB2 weather data in the cloud
+(by bounding box, variables, vertical levels) *before* it lands on your
+disk. Local sources first (NOMADS, AWS Open Data, Google Cloud, Azure
+Blob); a serverless `wgrib2` worker is an optional second layer for
+free-tier distributed cropping.
 
-> **Status (2026-04-19): pre-alpha, Layer 3 covers AWS + GCloud.** Eight
-> sources registered: `aws_crop` (AWS Lambda cloud-side crop, credential-
-> and quota-gated), `gcloud_crop` (GCloud Cloud Run cloud-side crop,
-> ADC- and quota-gated), `nomads`, `nomads_filter`, `aws`, `gcloud`,
-> `azure`, `rda`. Full-file sources share one download + local-crop
-> recipe; `nomads_filter`, `aws_crop`, and `gcloud_crop` do server-side
-> cropping. `DEFAULT_PRIORITY` tries cloud-side crop first (AWS then
-> GCloud) when credentials are resolvable; otherwise falls back to the
-> plain cloud mirrors. Azure Functions crop is fase 2. See
-> `docs/ROADMAP.md` for the layered build plan and `COMMUNICATION.md`
-> for the phase-by-phase cloud-crop rollout.
+> **GFS today.** HRRR, NAM, RAP, ECMWF open-data are on the roadmap —
+> the core (batch orchestration, byte-range streaming, crop, inventory,
+> quotas) is product-agnostic, so adding a new product is plugging in a
+> URL resolver + catalog, not rewriting the core. See
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
+> [`docs/ADDING_A_PRODUCT.md`](docs/ADDING_A_PRODUCT.md).
+
+> **Status (2026-04-21): pre-alpha, Layer 3 covers AWS + GCloud.** Nine
+> sources registered for GFS 0.25°: `aws_crop` (AWS Lambda cloud-side
+> crop, credential- and quota-gated), `gcloud_crop` (GCloud Cloud Run
+> cloud-side crop, ADC- and quota-gated), `azure_crop` (Azure Container
+> Apps), `nomads`, `nomads_filter`, `aws`, `gcloud`, `azure`, `rda`.
+> Full-file sources share one download + local-crop recipe;
+> `nomads_filter`, `aws_crop`, `gcloud_crop`, and `azure_crop` do
+> server-side cropping. `DEFAULT_PRIORITY` tries cloud-side crop first
+> (AWS → GCloud → Azure) when credentials are resolvable; otherwise
+> falls back to the plain cloud mirrors. See
+> [`docs/ROADMAP.md`](docs/ROADMAP.md) for the layered build plan.
 
 ## Install
 

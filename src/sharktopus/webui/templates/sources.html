@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — sources{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Sources</h2>
+    <p class="section-sub">Registered GFS mirrors and their capabilities.</p>
+  </div>
+
+  <table class="table">
+    <thead>
+      <tr><th>Name</th><th>Max workers</th><th>Earliest cycle</th><th>Retention</th></tr>
+    </thead>
+    <tbody>
+      {% for s in sources %}
+      <tr>
+        <td><strong>{{ s.name }}</strong></td>
+        <td>{{ s.workers }}</td>
+        <td>{{ s.earliest }}</td>
+        <td>{{ s.retention }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="hint">
+    Drag-to-reorder priority comes in M6. Today you edit priority on the
+    <a href="/submit">Submit</a> form per job.
+  </p>
+</section>
+
+{% endblock %}

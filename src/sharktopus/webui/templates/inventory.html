@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — inventory{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Inventory</h2>
+    <div class="section-actions">
+      <button class="btn btn-primary btn-sm"
+              hx-post="/api/inventory/scan"
+              hx-swap="none"
+              hx-on::after-request="window.location.reload()">
+        Scan cache
+      </button>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h3>On disk</h3>
+      <p class="stat-row">
+        <span class="stat"><em>{{ summary.n | short_num }}</em><small>files</small></span>
+        <span class="stat"><em>{{ summary.bytes | human_bytes }}</em><small>bytes</small></span>
+      </p>
+    </div>
+    <div class="card">
+      <h3>By date</h3>
+      {% if by_date %}
+      <ul class="tight">
+        {% for r in by_date[:5] %}
+        <li><strong>{{ r.date }}</strong> — {{ r.n }} files · {{ r.bytes | human_bytes }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">No dated files yet. Run a download or press <em>Scan cache</em>.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Recent files</h2></div>
+  {% if files %}
+  <table class="table">
+    <thead>
+      <tr><th>date</th><th>cycle</th><th>fxx</th><th>size</th><th>path</th></tr>
+    </thead>
+    <tbody>
+      {% for f in files %}
+      <tr>
+        <td>{{ f.date or '—' }}</td>
+        <td>{% if f.cycle %}{{ f.cycle }}z{% else %}—{% endif %}</td>
+        <td>{% if f.fxx is not none %}f{{ '%03d' | format(f.fxx) }}{% else %}—{% endif %}</td>
+        <td>{{ f.size_bytes | human_bytes }}</td>
+        <td><code>{{ f.path }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No files scanned yet. Click <em>Scan cache</em>.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

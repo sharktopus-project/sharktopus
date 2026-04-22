@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — new download{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="/static/css/leaflet.css?v={{ asset_version() }}">
+<script defer src="/static/js/leaflet.js?v={{ asset_version() }}"></script>
+{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>New download</h2>
+    <p class="section-sub">Every CLI flag, on a form.</p>
+  </div>
+
+  {% if errors %}
+  <div class="alert alert-error">
+    <strong>Fix these before submitting:</strong>
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/submit" class="form">
+    <fieldset class="product-fieldset">
+      <legend>Product</legend>
+      <p class="hint product-intro">
+        The product drives which variables, levels, and area the rest of the
+        form exposes — change this first. Currently only GFS 0.25° is wired;
+        HRRR, NAM, RAP, and ECMWF open-data are on the roadmap.
+      </p>
+      <div class="grid">
+        <label class="wide">
+          <span>Model &amp; format</span>
+          <select name="product" id="product-select" class="product-select"
+                  data-default-id="{{ defaults.default_product_id }}">
+            {% for p in defaults.products %}
+            <option value="{{ p.code }}" data-product-id="{{ p.id }}"
+                    data-description="{{ p.description }}"
+                    data-coverage-bbox="{{ (p.coverage_bbox | tojson) if p.coverage_bbox else '' }}"
+                    data-earliest="{{ p.earliest_date }}"
+                    data-earliest-year="{{ p.earliest_year }}"
+                    data-model="{{ p.model }}"
+                    data-allowed-sources="{{ p.allowed_sources | tojson }}"
+                    {% if (form and form.product == p.code) or (not form and p.id == defaults.default_product_id) %} selected{% endif %}>
+              {{ p.label }}
+            </option>
+            {% endfor %}
+          </select>
+          <small class="product-desc" id="product-desc"></small>
+          <small class="product-coverage" id="product-coverage"></small>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Run</legend>
+      <div class="grid">
+        <label>
+          <span>Name <small>(optional)</small></span>
+          <input name="name" value="{{ (form and form.name) or '' }}"
+                 placeholder="e.g. CONVECT-MAR2024-macae">
+        </label>
+        <label>
+          <span>Mode</span>
+          <select name="mode">
+            <option value="range"{% if form and form.mode == 'range' %} selected{% endif %}>Range (start / end / step)</option>
+            <option value="list"{% if form and form.mode == 'list' %} selected{% endif %}>Explicit timestamps</option>
+          </select>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset class="dt-host dt-mode-calendar"
+              data-min="{{ defaults.earliest_date }}"
+              data-min-year="{{ defaults.earliest_year }}">
+      <legend>Dates &amp; cycles</legend>
+      <div class="dt-mode-toggle" role="tablist" aria-label="Date entry mode">
+        <button type="button" class="mode-btn is-active" data-mode="calendar" role="tab">📅 Calendar</button>
+        <button type="button" class="mode-btn" data-mode="menus" role="tab">▼ Menus</button>
+        <span class="dt-floor-note">GFS cycles from <strong>{{ defaults.earliest_date }} 00Z</strong> (RDA floor).</span>
+      </div>
+      <div class="grid dt-row-dates">
+        {% for field, label in [("start", "Start"), ("end", "End")] %}
+        <label>
+          <span>{{ label }} <small>(UTC)</small></span>
+          <div class="dt-picker" data-target="{{ field }}">
+            <span class="dt-cal">
+              <input type="date" class="dt-date" min="{{ defaults.earliest_date }}"
+                     aria-label="{{ field }} date">
+            </span>
+            <span class="dt-menus">
+              <select class="dt-y" aria-label="{{ field }} year"></select>
+              <select class="dt-m" aria-label="{{ field }} month"></select>
+              <select class="dt-d" aria-label="{{ field }} day"></select>
+            </span>
+            <select class="dt-cycle" aria-label="{{ field }} cycle">
+              <option value="00">00Z</option>
+              <option value="06">06Z</option>
+              <option value="12">12Z</option>
+              <option value="18">18Z</option>
+            </select>
+          </div>
+          <input type="hidden" name="{{ field }}" value="{{ (form and form[field]) or '' }}">
+        </label>
+        {% endfor %}
+      </div>
+      <div class="grid dt-row-ts">
+        <label class="wide">
+          <span>Timestamps <small>(list mode — add via picker, click × on a chip to remove)</small></span>
+          <div class="ts-adder dt-picker" data-target="ts-add">
+            <span class="dt-cal">
+              <input type="date" class="dt-date" id="ts-add-date"
+                     min="{{ defaults.earliest_date }}" aria-label="timestamp date">
+            </span>
+            <span class="dt-menus">
+              <select class="dt-y" aria-label="timestamp year"></select>
+              <select class="dt-m" aria-label="timestamp month"></select>
+              <select class="dt-d" aria-label="timestamp day"></select>
+            </span>
+            <select class="dt-cycle" id="ts-add-cycle" aria-label="timestamp cycle">
+              <option value="00">00Z</option>
+              <option value="06">06Z</option>
+              <option value="12">12Z</option>
+              <option value="18">18Z</option>
+            </select>
+            <button type="button" class="btn btn-ghost" id="ts-add-btn">+ add</button>
+            <button type="button" class="btn btn-ghost" id="ts-clear-btn">clear all</button>
+          </div>
+          <div class="ts-chips" id="ts-chips"
+               data-initial="{{ (form and form.timestamps | join(',')) or '' }}"
+               aria-label="selected timestamps"></div>
+          <input type="hidden" name="timestamps" id="ts-hidden"
+                 value="{{ (form and form.timestamps | join(',')) or '' }}">
+        </label>
+      </div>
+      <p class="form-feedback" id="dt-range-error" hidden></p>
+      <div class="grid dt-row-nums">
+        <label>
+          <span>Cycle step (h)</span>
+          <input name="step" type="number" min="6" step="6" value="{{ (form and form.step) or 6 }}">
+        </label>
+        <label>
+          <span>Forecast horizon (h)</span>
+          <input name="ext" type="number" min="0" value="{{ (form and form.ext) or 24 }}">
+        </label>
+        <label>
+          <span>Step interval (h)</span>
+          <input name="interval" type="number" min="1" value="{{ (form and form.interval) or 3 }}">
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset class="bbox-host bbox-mode-map bbox-lon-180">
+      <legend>Bounding box</legend>
+      <div class="bbox-mode-toggle" role="tablist" aria-label="Bounding box entry mode">
+        <button type="button" class="mode-btn is-active" data-bmode="map" role="tab">🗺️ Map</button>
+        <button type="button" class="mode-btn" data-bmode="manual" role="tab">✎ Manual</button>
+        <span class="bbox-spacer" aria-hidden="true"></span>
+        <span class="bbox-conv-label">Longitude:</span>
+        <button type="button" class="mode-btn conv-btn is-active" data-conv="180" role="tab">−180..180</button>
+        <button type="button" class="mode-btn conv-btn" data-conv="360" role="tab">0..360</button>
+      </div>
+
+      <div class="bbox-map-wrap">
+        <div class="bbox-toolbar">
+          <button type="button" class="btn btn-ghost bbox-tool-btn" id="bbox-draw">
+            ✎ Draw box
+          </button>
+          <button type="button" class="btn btn-ghost bbox-tool-btn" id="bbox-clear">
+            🗑 Clear
+          </button>
+          <button type="button" class="btn btn-ghost bbox-tool-btn" id="bbox-fit">
+            ⤢ Fit to box
+          </button>
+          <span class="bbox-readout" id="bbox-readout">
+            <em>No box yet — click Draw and drag on the map, or enter values in Manual.</em>
+          </span>
+        </div>
+        <div id="bbox-map" class="bbox-map" aria-label="draggable bounding box map"></div>
+        <p class="bbox-map-hint">
+          Manual edits and map edits stay in sync. Zoom with scroll/pinch.
+        </p>
+        <div id="bbox-map-missing" class="bbox-map-missing" hidden>
+          <p>Interactive map didn't load — switch to
+          <strong>Manual</strong> to enter coordinates directly.</p>
+          <button type="button" class="btn btn-ghost"
+                  data-bmode="manual" id="bbox-switch-manual">
+            Switch to Manual →
+          </button>
+        </div>
+      </div>
+
+      <div class="bbox-manual">
+        <div class="grid bbox-coords">
+          <label><span>lat_s <small>(south)</small></span>
+            <input name="lat_s" type="number" step="any" min="-90" max="90"
+                   value="{{ form.lat_s if form else defaults.lat_s }}"></label>
+          <label><span>lat_n <small>(north)</small></span>
+            <input name="lat_n" type="number" step="any" min="-90" max="90"
+                   value="{{ form.lat_n if form else defaults.lat_n }}"></label>
+          <label><span>lon_w <small>(west)</small></span>
+            <input name="lon_w" type="number" step="any" min="-180" max="180"
+                   value="{{ form.lon_w if form else defaults.lon_w }}"></label>
+          <label><span>lon_e <small>(east)</small></span>
+            <input name="lon_e" type="number" step="any" min="-180" max="180"
+                   value="{{ form.lon_e if form else defaults.lon_e }}"></label>
+        </div>
+      </div>
+
+      <div class="grid bbox-pads">
+        <label><span>pad_lon <small>(deg, default 2)</small></span>
+          <input name="pad_lon" type="number" step="any"
+                 value="{{ (form and form.pad_lon) or '' }}"></label>
+        <label><span>pad_lat <small>(deg, default 2)</small></span>
+          <input name="pad_lat" type="number" step="any"
+                 value="{{ (form and form.pad_lat) or '' }}"></label>
+      </div>
+
+      <input type="hidden" name="lon_convention"
+             value="{{ (form and form.lon_convention) or '-180..180' }}">
+
+      <p class="form-feedback" id="bbox-error" hidden></p>
+      <p class="hint">
+        Latitude must be in [−90, 90] and south &lt; north.
+        Longitude range depends on the selected convention (−180..180 default,
+        or 0..360). East must be greater than west.
+      </p>
+    </fieldset>
+
+    <fieldset class="sources-host" id="sources-host"
+              data-initial="{{ (form and form.priority | join(',')) or '' }}">
+      <legend>Sources</legend>
+      <p class="hint sources-intro">
+        Drag chips to reorder priority. Click <strong>×</strong> to disable a source
+        (it drops to the pool below and is skipped at runtime). Click a pooled chip
+        to re-enable it at the end of the priority list.
+      </p>
+
+      <div class="sources-track-label">
+        <strong>Priority</strong>
+        <span class="sources-count" id="sources-enabled-count">0 enabled</span>
+      </div>
+      <div class="sources-track" id="sources-enabled"
+           aria-label="enabled sources in priority order" role="list"></div>
+
+      <div class="sources-track-label sources-pool-label">
+        <strong>Disabled</strong>
+        <span class="sources-count" id="sources-pool-count">0 disabled</span>
+      </div>
+      <div class="sources-pool" id="sources-pool"
+           aria-label="disabled sources — click to re-enable" role="list"></div>
+
+      <script type="application/json" id="sources-catalog">
+        {{ defaults.sources | tojson }}
+      </script>
+
+      <input type="hidden" name="priority" id="sources-priority"
+             value="{{ (form and form.priority | join(',')) or '' }}">
+
+      <div class="grid sources-opts">
+        <label>
+          <span>Max workers <small>(fallback-chain mode)</small></span>
+          <input name="max_workers" type="number" min="1"
+                 value="{{ (form and form.max_workers) or '' }}">
+        </label>
+        <label>
+          <span>Concurrency mode</span>
+          <select name="spread">
+            <option value="auto"{% if not form or form.spread == 'auto' %} selected{% endif %}>Auto (recommended)</option>
+            <option value="spread"{% if form and form.spread == 'spread' %} selected{% endif %}>Spread across sources</option>
+            <option value="classic"{% if form and form.spread == 'classic' %} selected{% endif %}>Classic fallback chain</option>
+          </select>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset class="vl-host" id="vl-host">
+      <legend>Variables &amp; levels</legend>
+      <p class="hint vl-intro">
+        Filtering works on <em>every</em> source. NOMADS does it natively;
+        cloud-crop / local-crop sources apply the same filter after the fetch.
+        Leave both lists empty to use WRF defaults
+        ({{ defaults.variables | length }} vars × {{ defaults.levels | length }} levels).
+      </p>
+
+      <div class="vl-preset-row">
+        <label class="wide">
+          <span>Preset <small>(your saved selections)</small></span>
+          <div class="vl-preset-bar">
+            <select id="vl-preset-select" class="vl-preset-select">
+              <option value="">— choose a preset —</option>
+              <option value="__defaults__">WRF defaults (13 vars × 49 levels)</option>
+            </select>
+            <button type="button" class="btn btn-ghost" id="vl-preset-apply">Apply</button>
+            <button type="button" class="btn btn-ghost" id="vl-preset-delete">Delete</button>
+          </div>
+        </label>
+      </div>
+
+      <div class="vl-cascade">
+        <div class="vl-col">
+          <div class="vl-col-head">
+            <strong>1. Pick variables</strong>
+            <span class="vl-count" id="vl-var-count">0 selected</span>
+          </div>
+          <input type="search" id="vl-var-search" class="vl-search"
+                 placeholder="Filter variables (name or description)…"
+                 aria-label="search variables">
+          <div class="vl-list" id="vl-var-list" role="listbox"
+               aria-label="available variables"></div>
+        </div>
+        <div class="vl-col">
+          <div class="vl-col-head">
+            <strong>2. Pick levels</strong>
+            <span class="vl-count" id="vl-lvl-count">0 selected</span>
+          </div>
+          <p class="vl-lvl-hint" id="vl-lvl-hint">
+            Select one or more variables first. Levels are narrowed to what
+            those variables actually exist at.
+          </p>
+          <input type="search" id="vl-lvl-search" class="vl-search"
+                 placeholder="Filter levels…"
+                 aria-label="search levels" hidden>
+          <div class="vl-list" id="vl-lvl-list" role="listbox"
+               aria-label="available levels"></div>
+        </div>
+      </div>
+
+      <div class="vl-chips-wrap">
+        <div class="vl-chip-row">
+          <span class="vl-chip-label">Variables:</span>
+          <div class="vl-chips" id="vl-var-chips" aria-label="selected variables"></div>
+        </div>
+        <div class="vl-chip-row">
+          <span class="vl-chip-label">Levels:</span>
+          <div class="vl-chips" id="vl-lvl-chips" aria-label="selected levels"></div>
+        </div>
+      </div>
+
+      <div class="vl-save">
+        <label class="vl-save-name">
+          <span>Save this selection as a preset</span>
+          <input type="text" id="vl-save-name" placeholder="e.g. WRF-LES-minimal">
+        </label>
+        <input type="text" id="vl-save-desc" class="vl-save-desc"
+               placeholder="optional description">
+        <button type="button" class="btn btn-ghost" id="vl-save-btn">Save preset</button>
+      </div>
+
+      <p class="form-feedback" id="vl-feedback" hidden></p>
+
+      <input type="hidden" name="variables" id="vl-variables"
+             value="{{ (form and form.variables | join(',')) or '' }}">
+      <input type="hidden" name="levels" id="vl-levels"
+             value="{{ (form and form.levels | join(',')) or '' }}">
+    </fieldset>
+
+    <fieldset>
+      <legend>Output (optional)</legend>
+      <div class="grid">
+        <label class="wide"><span>dest</span>
+          <input name="dest" value="{{ (form and form.dest) or '' }}" placeholder="/scratch/run"></label>
+        <label class="wide"><span>root</span>
+          <input name="root" value="{{ (form and form.root) or '' }}" placeholder="/data/gfs (overrides $SHARKTOPUS_DATA)"></label>
+      </div>
+    </fieldset>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Queue job</button>
+      <a href="/jobs" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

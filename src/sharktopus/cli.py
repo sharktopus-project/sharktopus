@@ -128,6 +128,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # Local web UI (requires the [ui] extra: pip install 'sharktopus[ui]')
+    parser.add_argument(
+        "--ui", action="store_true",
+        help="Launch the local web UI and open a browser tab.",
+    )
+    parser.add_argument(
+        "--ui-host", default="127.0.0.1", dest="ui_host",
+        help="Bind address for --ui (default 127.0.0.1).",
+    )
+    parser.add_argument(
+        "--ui-port", type=int, default=8765, dest="ui_port",
+        help="Port for --ui (default 8765).",
+    )
+    parser.add_argument(
+        "--ui-no-browser", action="store_true", dest="ui_no_browser",
+        help="Do not try to open a browser tab when starting --ui.",
+    )
+
     return parser
 
 
@@ -247,6 +265,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.setup:
         from .setup import run_setup
         return run_setup(args.setup)
+    if args.ui:
+        from . import webui
+        return webui.start_server(
+            host=args.ui_host,
+            port=args.ui_port,
+            open_browser=not args.ui_no_browser,
+        )
 
     cfg: dict[str, Any] = {}
     if args.config:

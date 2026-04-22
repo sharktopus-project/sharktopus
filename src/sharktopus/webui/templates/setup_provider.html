@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — setup {{ provider }}{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Setup — {{ provider }}</h2>
+    <a class="btn btn-ghost btn-sm" href="/setup">← back to setup</a>
+  </div>
+
+  <div class="alert alert-info">
+    <strong>Coming in M8–M10.</strong>
+    The wizard will drive <code>deploy/{{ provider }}/provision.py</code> step-by-step with
+    streaming logs right here. For today, run it from the terminal:
+    <pre class="code">sharktopus --setup {{ provider }}</pre>
+  </div>
+
+  <ol class="steps">
+    <li>Authenticate (browser-based OAuth or SDK login).</li>
+    <li>Enable required APIs in the target project.</li>
+    <li>Create the crop service's storage bucket.</li>
+    <li>Create the container repository (ECR / Artifact Registry / ACR).</li>
+    <li>Pull the <code>sharktopus-crop</code> image from GHCR.</li>
+    <li>Deploy the serverless service.</li>
+    <li>Run a smoke test against the new endpoint.</li>
+    <li>Save endpoint + credentials to <code>~/.cache/sharktopus/</code>.</li>
+  </ol>
+</section>
+
+{% endblock %}

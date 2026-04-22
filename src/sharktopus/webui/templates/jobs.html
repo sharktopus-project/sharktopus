@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — jobs{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Jobs</h2>
+    <div class="section-actions">
+      <a class="btn btn-sm {% if not status_filter %}btn-primary{% else %}btn-ghost{% endif %}" href="/jobs">all</a>
+      <a class="btn btn-sm {% if status_filter == 'running' %}btn-primary{% else %}btn-ghost{% endif %}" href="/jobs?status=running">running</a>
+      <a class="btn btn-sm {% if status_filter == 'queued' %}btn-primary{% else %}btn-ghost{% endif %}" href="/jobs?status=queued">queued</a>
+      <a class="btn btn-sm {% if status_filter == 'succeeded' %}btn-primary{% else %}btn-ghost{% endif %}" href="/jobs?status=succeeded">succeeded</a>
+      <a class="btn btn-sm {% if status_filter == 'failed' %}btn-primary{% else %}btn-ghost{% endif %}" href="/jobs?status=failed">failed</a>
+      <a class="btn btn-sm btn-primary" href="/submit">+ new</a>
+    </div>
+  </div>
+
+  {% if jobs %}
+  <table class="table">
+    <thead>
+      <tr><th>#</th><th>Name</th><th>Status</th><th>Progress</th><th>Bytes</th><th>Duration</th><th>Created</th></tr>
+    </thead>
+    <tbody>
+      {% for j in jobs %}
+      <tr>
+        <td><a href="/jobs/{{ j.id }}">{{ j.id }}</a></td>
+        <td>{{ j.name }}</td>
+        <td><span class="badge badge-{{ j.status }}">{{ j.status }}</span></td>
+        <td>
+          <div class="progress"><div class="progress-bar" style="width: {{ j.percent }}%"></div></div>
+          <small>{{ j.steps_done }}/{{ j.steps_total }}{% if j.steps_failed %} · {{ j.steps_failed }} failed{% endif %}</small>
+        </td>
+        <td>{{ j.bytes_downloaded | human_bytes }}</td>
+        <td>{{ j.duration }}</td>
+        <td>{{ j.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No jobs match this filter. <a href="/submit">Start one →</a></p>
+  {% endif %}
+</section>
+
+{% endblock %}

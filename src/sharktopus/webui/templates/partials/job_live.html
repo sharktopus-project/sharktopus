@@ -1,0 +1,42 @@
+<div class="job-live">
+  <div class="progress big" title="{{ job.steps_done }} / {{ job.steps_total }}">
+    <div class="progress-bar" style="width: {{ job.percent }}%"></div>
+  </div>
+  <p class="progress-meta">
+    {{ job.steps_done }} ok · {{ job.steps_failed }} failed · {{ job.steps_total }} total
+    &nbsp;·&nbsp; duration {{ job.duration }}
+  </p>
+  <div class="live-two-col">
+    <div>
+      <h4>Latest steps</h4>
+      {% if steps %}
+      <table class="table compact">
+        <thead><tr><th>date</th><th>cycle</th><th>fxx</th><th>status</th><th>path / error</th></tr></thead>
+        <tbody>
+          {% for s in steps %}
+          <tr class="{{ s.status }}">
+            <td>{{ s.date }}</td>
+            <td>{{ s.cycle }}z</td>
+            <td>f{{ '%03d' | format(s.fxx) }}</td>
+            <td>{{ s.status }}</td>
+            <td>{% if s.status == 'ok' %}<code>{{ s.path }}</code>{% else %}{{ s.error }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">No steps yet.</p>
+      {% endif %}
+    </div>
+    <div>
+      <h4>Logs</h4>
+      <div class="log">
+        {% for l in logs %}
+        <p class="log-line log-{{ l.level }}"><time>{{ l.ts }}</time> {{ l.message }}</p>
+        {% else %}
+        <p class="empty">No log lines yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>

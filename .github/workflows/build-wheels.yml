@@ -92,15 +92,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install gfortran via Homebrew
-        # Homebrew's gcc formula ships both gcc-N and gfortran (no
-        # version suffix on gfortran). We force CC below to the
-        # Homebrew gcc so wgrib2's C sources don't hit Apple's Clang
-        # (which calls itself gcc on /usr/bin/gcc but can't talk to
-        # Homebrew's libgfortran ABI cleanly).
+        # Homebrew's gcc formula ships versioned binaries (gcc-13,
+        # gfortran-13, ...). There's no unsuffixed `gfortran` on PATH
+        # after `brew install gcc`, so we derive both CC and FC by
+        # globbing the versioned names. We force CC to the Homebrew gcc
+        # so wgrib2's C sources don't hit Apple's Clang-as-gcc.
         run: |
           brew update-reset >/dev/null
           brew install gcc
           echo "BREW_GCC=$(ls /opt/homebrew/bin/gcc-* | grep -E 'gcc-[0-9]+$' | head -1)" >> "$GITHUB_ENV"
+          echo "BREW_FC=$(ls /opt/homebrew/bin/gfortran-* | grep -E 'gfortran-[0-9]+$' | head -1)" >> "$GITHUB_ENV"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -111,10 +112,9 @@ jobs:
         run: pip install --upgrade pip build delocate
 
       - name: Compile wgrib2
-        env:
-          FC: gfortran
         run: |
           export CC="$BREW_GCC"
+          export FC="$BREW_FC"
           scripts/build_wgrib2.sh /tmp/wgrib2
 
       - name: Bundle wheel
@@ -150,7 +150,10 @@ jobs:
           brew update-reset >/dev/null
           brew install gcc
           # Intel Homebrew lives under /usr/local, not /opt/homebrew.
+          # Homebrew's gcc formula only ships versioned binaries, so we
+          # derive both CC and FC from the gcc-N / gfortran-N pair.
           echo "BREW_GCC=$(ls /usr/local/bin/gcc-* | grep -E 'gcc-[0-9]+$' | head -1)" >> "$GITHUB_ENV"
+          echo "BREW_FC=$(ls /usr/local/bin/gfortran-* | grep -E 'gfortran-[0-9]+$' | head -1)" >> "$GITHUB_ENV"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -161,10 +164,9 @@ jobs:
         run: pip install --upgrade pip build delocate
 
       - name: Compile wgrib2
-        env:
-          FC: gfortran
         run: |
           export CC="$BREW_GCC"
+          export FC="$BREW_FC"
           scripts/build_wgrib2.sh /tmp/wgrib2
 
       - name: Bundle wheel

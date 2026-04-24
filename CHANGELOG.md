@@ -4,6 +4,21 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-04-23
+
+### Fixed
+- **macOS wheel build (arm64 + x86_64)** (2026-04-23). CI workflow set
+  `FC: gfortran` plainly, but Homebrew's `gcc` formula only installs
+  versioned binaries (`gfortran-13`), so `command -v gfortran` in
+  `scripts/build_wgrib2.sh` failed with "missing required tool: gfortran".
+  Fixed by deriving `BREW_FC` from the versioned gfortran-N in the
+  Homebrew prefix, mirroring how `BREW_GCC` is already derived.
+- **Linux aarch64 wheel build** (2026-04-23). wgrib2 bundles proj-4.8.0
+  whose `config.guess` is frozen at 2007-03-06 and fails on aarch64
+  Linux with "cannot guess build type". Fixed by sed-patching wgrib2's
+  makefile to pass `--build=<host-triplet>` to proj's configure,
+  skipping the auto-detection entirely.
+
 ## [0.1.1] — 2026-04-23 (PyPI)
 
 ### Added

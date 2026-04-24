@@ -4,6 +4,17 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-04-24
+
+### Fixed
+- **macOS wheel build — gfortran preflight check** (2026-04-24). The 0.1.2
+  fix made the CI workflow set `FC=/opt/homebrew/bin/gfortran-13`, but
+  `scripts/build_wgrib2.sh` still ran a preflight `command -v gfortran`
+  before consulting `$FC`, so the bare-name lookup kept failing on
+  macOS. Changed the preflight loop to honour `${CC:-gcc}` and
+  `${FC:-gfortran}`, which works on both Linux (where the workflow
+  doesn't set them) and macOS (where it does).
+
 ## [0.1.2] — 2026-04-23
 
 ### Fixed

@@ -29,7 +29,7 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 out="${1:-$repo_root/src/sharktopus/_bin/wgrib2}"
 mkdir -p "$(dirname "$out")"
 
-for cmd in gcc gfortran make tar; do
+for cmd in "${CC:-gcc}" "${FC:-gfortran}" make tar; do
     command -v "$cmd" >/dev/null 2>&1 || {
         echo "missing required tool: $cmd" >&2
         exit 2

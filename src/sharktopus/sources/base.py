@@ -20,6 +20,8 @@ __all__ = [
     "canonical_filename",
     "check_retention",
     "fetch_text",
+    "format_filename",
+    "gfs_canonical_filename",
     "head_size",
     "stream_byte_ranges",
     "supports_date",
@@ -61,11 +63,58 @@ def canonical_filename(cycle: str, fxx: int, product: str = "pgrb2.0p25") -> str
 
     Example: ``canonical_filename("00", 6)`` returns
     ``"gfs.t00z.pgrb2.0p25.f006"``.
+
+    GFS-shaped filename. For new products with a different filename
+    convention (HRRR, NAM, GEFS…), use :func:`format_filename` from a
+    sibling source module instead of hard-coding this one.
     """
     validate_cycle(cycle)
     if fxx < 0:
         raise ValueError(f"fxx must be >= 0, got {fxx}")
     return f"gfs.t{cycle}z.{product}.f{fxx:03d}"
+
+
+# Kept as an explicit alias so per-product source modules can make the
+# "this is the GFS filename contract" intent obvious at the call site.
+gfs_canonical_filename = canonical_filename
+
+
+def format_filename(
+    template: str,
+    *,
+    cycle: str,
+    fxx: int,
+    product: str | None = None,
+    **extra: object,
+) -> str:
+    """Format a product-specific filename from a ``str.format`` template.
+
+    The template receives the keyword args ``cycle``, ``fxx`` (as both the
+    raw int and ``fxx3`` for the zero-padded three-digit form used by most
+    NCEP products), ``product``, and any ``extra`` the caller passes.
+
+    Example — HRRR CONUS pressure-level::
+
+        format_filename(
+            "hrrr.t{cycle}z.wrfprsf{fxx2}.grib2",
+            cycle="00", fxx=6, fxx2=f"{6:02d}",
+        )
+        # "hrrr.t00z.wrfprsf06.grib2"
+
+    Shared cycle/fxx validation matches :func:`canonical_filename` so
+    every per-product source layer gets the same input contract.
+    """
+    validate_cycle(cycle)
+    if fxx < 0:
+        raise ValueError(f"fxx must be >= 0, got {fxx}")
+    kw: dict[str, object] = {
+        "cycle": cycle,
+        "fxx": fxx,
+        "fxx3": f"{fxx:03d}",
+        "product": product or "",
+    }
+    kw.update(extra)
+    return template.format(**kw)
 
 
 def _deadline_check(deadline: float | None, url: str) -> None:

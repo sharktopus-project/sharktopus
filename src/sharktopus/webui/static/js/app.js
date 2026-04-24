@@ -1459,6 +1459,74 @@
     render();
   }
 
+  // ------------------------------------------------------------ directory picker
+  //
+  // The modal shell lives in submit.html; the body is fetched from
+  // /api/fs/browse as an HTMX fragment. This wiring opens/closes the
+  // modal and writes the chosen path back to the correct form input.
+
+  function wireFsPicker() {
+    var modal = document.getElementById("fs-modal");
+    if (!modal) return;
+    var body = modal.querySelector("#fs-browser-body");
+    var currentTarget = null;
+
+    function open(targetName, seed) {
+      currentTarget = targetName;
+      modal.hidden = false;
+      modal.setAttribute("aria-hidden", "false");
+      var path = seed || "";
+      var url = "/api/fs/browse?path=" + encodeURIComponent(path) +
+                "&target=" + encodeURIComponent(targetName);
+      if (window.htmx) {
+        window.htmx.ajax("GET", url, { target: "#fs-browser-body", swap: "innerHTML" });
+      }
+    }
+
+    function close() {
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+    }
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll(".fs-open-btn"),
+      function (btn) {
+        btn.addEventListener("click", function () {
+          var target = btn.dataset.fsTarget;
+          var input = document.querySelector('input[name="' + target + '"]');
+          open(target, input ? input.value : "");
+        });
+      }
+    );
+
+    Array.prototype.forEach.call(
+      modal.querySelectorAll(".fs-cancel"),
+      function (btn) { btn.addEventListener("click", close); }
+    );
+
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) close();
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (!modal.hidden && e.key === "Escape") close();
+    });
+
+    var confirm = modal.querySelector(".fs-confirm");
+    confirm.addEventListener("click", function () {
+      if (!currentTarget) return close();
+      var cur = body.querySelector(".fs-current");
+      var path = cur ? cur.dataset.fsCurrentPath : null;
+      if (!path) return close();
+      var input = document.querySelector('input[name="' + currentTarget + '"]');
+      if (input) {
+        input.value = path;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      close();
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     autoOpenClones();
     autoHideAlerts();
@@ -1469,5 +1537,6 @@
                           // their _set*() hooks are wired, and BEFORE
                           // wireVarLevelHost — it seeds the product id there.
     wireVarLevelHost(document.querySelector(".vl-host"));
+    wireFsPicker();
   });
 })();

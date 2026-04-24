@@ -358,11 +358,45 @@
       <legend>Output (optional)</legend>
       <div class="grid">
         <label class="wide"><span>dest</span>
-          <input name="dest" value="{{ (form and form.dest) or '' }}" placeholder="/scratch/run"></label>
+          <span class="path-input">
+            <input name="dest" id="in-dest"
+                   value="{{ (form and form.dest) or '' }}"
+                   placeholder="/scratch/run">
+            <button type="button" class="btn btn-ghost fs-open-btn"
+                    data-fs-target="dest">Browse&hellip;</button>
+          </span>
+        </label>
         <label class="wide"><span>root</span>
-          <input name="root" value="{{ (form and form.root) or '' }}" placeholder="/data/gfs (overrides $SHARKTOPUS_DATA)"></label>
+          <span class="path-input">
+            <input name="root" id="in-root"
+                   value="{{ (form and form.root) or '' }}"
+                   placeholder="/data/gfs (overrides $SHARKTOPUS_DATA)">
+            <button type="button" class="btn btn-ghost fs-open-btn"
+                    data-fs-target="root">Browse&hellip;</button>
+          </span>
+        </label>
       </div>
     </fieldset>
+
+    {# Directory picker modal — one shell, shared by the two Browse buttons.
+       Contents are served by GET /api/fs/browse as an HTMX fragment. #}
+    <div id="fs-modal" class="fs-modal" hidden aria-hidden="true"
+         role="dialog" aria-modal="true" aria-labelledby="fs-modal-title">
+      <div class="fs-modal-card">
+        <header class="fs-modal-head">
+          <h3 id="fs-modal-title">Choose folder</h3>
+          <button type="button" class="btn btn-ghost fs-cancel"
+                  aria-label="close">&times;</button>
+        </header>
+        <div id="fs-browser-body" class="fs-browser"></div>
+        <footer class="fs-modal-foot">
+          <button type="button" class="btn btn-ghost fs-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary fs-confirm">
+            Select this folder
+          </button>
+        </footer>
+      </div>
+    </div>
 
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">Queue job</button>

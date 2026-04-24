@@ -93,6 +93,17 @@ INLINE_SIZE_LIMIT = 20 * 1024 * 1024
 DOWNLOAD_WORKERS = int(os.environ.get("SHARKTOPUS_DOWNLOAD_WORKERS", "16"))
 MEMORY_MB = int(os.environ.get("SHARKTOPUS_MEMORY_MB", "2048"))
 
+# GFS product codes this container is willing to serve. Defence in
+# depth: the container points at the public Azure GFS mirror, so
+# accepting any string as ``product`` would let a malicious payload
+# construct unrelated keys. New models get their own Container App.
+ALLOWED_PRODUCTS = frozenset({
+    "pgrb2.0p25", "pgrb2b.0p25",
+    "pgrb2.0p50", "pgrb2b.0p50",
+    "pgrb2.1p00", "pgrb2b.1p00",
+    "sfluxgrbf",
+})
+
 
 app = Flask(__name__)
 
@@ -110,6 +121,12 @@ def crop_endpoint():
     event = request.get_json(silent=True) or {}
     try:
         result = _process(event)
+    except ValueError as e:
+        logger.warning("rejecting event: %s", e)
+        return jsonify({
+            "statusCode": 400,
+            "body": {"error": str(e), "type": "ValueError"},
+        }), 400
     except Exception as e:
         logger.exception("handler failed")
         return jsonify({
@@ -127,6 +144,11 @@ def _process(event: dict) -> dict:
     """Core pipeline: validate → find key → range-download → crop → package."""
     date, cycle, fxx = _parse_required(event)
     product = event.get("product", "pgrb2.0p25")
+    if product not in ALLOWED_PRODUCTS:
+        raise ValueError(
+            f"product {product!r} not allowed on this handler; "
+            f"allowed: {sorted(ALLOWED_PRODUCTS)}"
+        )
     response_mode = event.get("response_mode", "auto")
     variables = event.get("variables") or []
     levels = event.get("levels") or []

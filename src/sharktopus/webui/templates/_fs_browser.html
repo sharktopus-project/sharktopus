@@ -1,0 +1,56 @@
+{# Directory-picker fragment served by GET /api/fs/browse and POST /api/fs/mkdir.
+   HTMX replaces #fs-browser-body on every navigation step, so the shell
+   (modal scaffolding) lives in submit.html and never re-renders. #}
+<div class="fs-crumbs" role="navigation" aria-label="breadcrumb">
+  {% for c in crumbs %}
+  <button type="button" class="fs-crumb"
+          hx-get="/api/fs/browse?path={{ c.path | urlencode }}&target={{ target }}"
+          hx-target="#fs-browser-body" hx-swap="outerHTML">{{ c.label }}</button>
+  {% if not loop.last %}<span class="fs-crumb-sep">/</span>{% endif %}
+  {% endfor %}
+</div>
+
+<div class="fs-current"
+     data-fs-current-path="{{ current }}"
+     data-fs-target="{{ target }}">
+  <code>{{ current }}</code>
+</div>
+
+{% if mkdir_error %}
+<p class="fs-error" role="alert">{{ mkdir_error }}</p>
+{% elif mkdir_ok %}
+<p class="fs-ok" role="status">created <strong>{{ mkdir_ok }}</strong></p>
+{% endif %}
+
+<ul class="fs-list" id="fs-browser-body" role="list">
+  {% if parent %}
+  <li>
+    <button type="button" class="fs-entry fs-entry-parent"
+            hx-get="/api/fs/browse?path={{ parent | urlencode }}&target={{ target }}"
+            hx-target="#fs-browser-body" hx-swap="outerHTML">
+      <span class="fs-entry-icon" aria-hidden="true">↩</span>
+      <span class="fs-entry-name">..</span>
+    </button>
+  </li>
+  {% endif %}
+  {% for e in entries %}
+  <li>
+    <button type="button" class="fs-entry"
+            hx-get="/api/fs/browse?path={{ e.path | urlencode }}&target={{ target }}"
+            hx-target="#fs-browser-body" hx-swap="outerHTML">
+      <span class="fs-entry-icon" aria-hidden="true">📁</span>
+      <span class="fs-entry-name">{{ e.name }}</span>
+    </button>
+  </li>
+  {% else %}
+  <li class="fs-empty">(no subfolders here)</li>
+  {% endfor %}
+</ul>
+
+<form class="fs-mkdir" hx-post="/api/fs/mkdir"
+      hx-target="#fs-browser-body" hx-swap="outerHTML">
+  <input type="hidden" name="path" value="{{ current }}">
+  <input type="hidden" name="target" value="{{ target }}">
+  <input type="text" name="name" placeholder="new folder name" autocomplete="off">
+  <button type="submit" class="btn btn-ghost">Create folder</button>
+</form>

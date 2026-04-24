@@ -8,9 +8,11 @@ fragments evolve independently. Every endpoint here is prefixed with
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from .. import catalog as webcatalog
@@ -273,6 +275,153 @@ def _preset_dict(row: Any) -> dict[str, Any]:
         "created_at":  row["created_at"],
         "updated_at":  row["updated_at"],
     }
+
+
+# --------------------------------------------------------------------- filesystem picker
+#
+# Local-only WebUI — the browser runs on the same machine as the user,
+# so traversing their own filesystem is the whole point. Returns an HTML
+# fragment so HTMX can hot-swap it into the modal without reshipping
+# scaffolding on every navigation step.
+
+def _fs_resolve(path: str | None) -> Path:
+    """Resolve *path* to an absolute directory, defaulting to $HOME.
+
+    Symlinks are followed; we don't sandbox the browse root because the
+    UI is local and the user already has every right on their own disk.
+    Non-existent or non-directory paths raise ``FileNotFoundError`` /
+    ``NotADirectoryError``; callers translate to HTTP.
+    """
+    if not path:
+        return Path(os.path.expanduser("~")).resolve()
+    p = Path(os.path.expanduser(path)).resolve()
+    if not p.exists():
+        raise FileNotFoundError(str(p))
+    if not p.is_dir():
+        raise NotADirectoryError(str(p))
+    return p
+
+
+def _fs_list(p: Path) -> list[dict[str, str]]:
+    """List *p* as ``[{name, path, is_dir}]`` — directories only, sorted.
+
+    Files are skipped: the picker exists to choose a *directory*.
+    Permission errors on individual entries are swallowed so one
+    unreadable subfolder doesn't blank the view.
+    """
+    entries: list[dict[str, str]] = []
+    try:
+        for child in sorted(p.iterdir(), key=lambda c: c.name.lower()):
+            if child.name.startswith("."):
+                continue
+            try:
+                if child.is_dir():
+                    entries.append({
+                        "name": child.name,
+                        "path": str(child.resolve()),
+                    })
+            except OSError:
+                continue
+    except PermissionError:
+        pass
+    return entries
+
+
+def _fs_breadcrumbs(p: Path) -> list[dict[str, str]]:
+    """Return ``[{label, path}]`` for each ancestor, root first."""
+    parts: list[dict[str, str]] = []
+    cur = p
+    while True:
+        parts.append({
+            "label": cur.name or str(cur),
+            "path": str(cur),
+        })
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+    parts.reverse()
+    return parts
+
+
+@router.get("/fs/browse")
+def fs_browse(request: Request, path: str = "", target: str = "root") -> HTMLResponse:
+    """Return an HTMX fragment listing directories under *path*.
+
+    *target* is the form input name that will receive the chosen path;
+    it's echoed through data attributes so one modal template can serve
+    both the Submit form's ``root`` and ``dest`` fields (and any future
+    path inputs) without duplication.
+    """
+    try:
+        p = _fs_resolve(path)
+    except (FileNotFoundError, NotADirectoryError):
+        p = _fs_resolve(None)  # fall back to $HOME
+
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "_fs_browser.html",
+        {
+            "current": str(p),
+            "parent": str(p.parent) if p.parent != p else "",
+            "entries": _fs_list(p),
+            "crumbs": _fs_breadcrumbs(p),
+            "target": target,
+        },
+    )
+
+
+@router.post("/fs/mkdir")
+def fs_mkdir(
+    request: Request,
+    path: str = Form(...),
+    name: str = Form(...),
+    target: str = Form("root"),
+) -> HTMLResponse:
+    """Create directory *name* under *path* and re-render the browser.
+
+    Fails with a 400 fragment (rendered inline in the modal) on
+    invalid names — we reject slashes, dots-only, and anything starting
+    with a dot so folders stay visible after creation.
+    """
+    clean = name.strip()
+    if not clean or clean in {".", ".."} or "/" in clean or "\\" in clean or clean.startswith("."):
+        templates = request.app.state.templates
+        try:
+            p = _fs_resolve(path)
+        except (FileNotFoundError, NotADirectoryError):
+            p = _fs_resolve(None)
+        return templates.TemplateResponse(
+            request, "_fs_browser.html",
+            {
+                "current": str(p),
+                "parent": str(p.parent) if p.parent != p else "",
+                "entries": _fs_list(p),
+                "crumbs": _fs_breadcrumbs(p),
+                "target": target,
+                "mkdir_error": f"invalid folder name: {name!r}",
+            },
+            status_code=400,
+        )
+
+    parent = _fs_resolve(path)
+    new_dir = parent / clean
+    new_dir.mkdir(parents=False, exist_ok=True)
+
+    templates = request.app.state.templates
+    p = new_dir
+    return templates.TemplateResponse(
+        request, "_fs_browser.html",
+        {
+            "current": str(p),
+            "parent": str(p.parent) if p.parent != p else "",
+            "entries": _fs_list(p),
+            "crumbs": _fs_breadcrumbs(p),
+            "target": target,
+            "mkdir_ok": clean,
+        },
+    )
 
 
 # --------------------------------------------------------------------- helpers

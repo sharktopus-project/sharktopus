@@ -75,6 +75,17 @@ DEFAULT_S3_BUCKET = os.environ.get("SHARKTOPUS_S3_BUCKET", "")
 DEFAULT_S3_PREFIX = os.environ.get("SHARKTOPUS_S3_PREFIX", "crops/")
 INLINE_SIZE_LIMIT = 4 * 1024 * 1024
 
+# GFS product codes this handler is willing to serve. Defence in depth:
+# this Lambda points at the public GFS bucket, so accepting any string as
+# ``product`` would let a malicious payload point at unrelated keys. New
+# models (HRRR, NAM, GEFS…) get their own Lambda + bucket + whitelist.
+ALLOWED_PRODUCTS = frozenset({
+    "pgrb2.0p25", "pgrb2b.0p25",
+    "pgrb2.0p50", "pgrb2b.0p50",
+    "pgrb2.1p00", "pgrb2b.1p00",
+    "sfluxgrbf",
+})
+
 DOWNLOAD_WORKERS = int(os.environ.get("SHARKTOPUS_DOWNLOAD_WORKERS", "16"))
 
 
@@ -90,6 +101,9 @@ def lambda_handler(event, context):
     start_ns = time.monotonic_ns()
     try:
         result = _process(event)
+    except ValueError as e:
+        logger.warning("rejecting event: %s", e)
+        return {"statusCode": 400, "body": {"error": str(e), "type": "ValueError"}}
     except Exception as e:
         logger.exception("handler failed")
         return {"statusCode": 500, "body": {"error": str(e), "type": type(e).__name__}}
@@ -110,6 +124,11 @@ def _process(event: dict) -> dict:
     """
     date, cycle, fxx = _parse_required(event)
     product = event.get("product", "pgrb2.0p25")
+    if product not in ALLOWED_PRODUCTS:
+        raise ValueError(
+            f"product {product!r} not allowed on this handler; "
+            f"allowed: {sorted(ALLOWED_PRODUCTS)}"
+        )
     response_mode = event.get("response_mode", "auto")
     variables = event.get("variables") or []
     levels = event.get("levels") or []

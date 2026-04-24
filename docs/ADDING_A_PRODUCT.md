@@ -144,18 +144,23 @@ falls back to the bundled file. Useful when NOAA adds a variable mid-cycle.
 
 ## Step 3 — make a mirror serve the product
 
-There are two shapes depending on the mirror.
+There are two shapes depending on the mirror. **3b (sibling file per
+cloud+product) is the preferred path for any new model** — it
+guarantees that adding a product cannot regress an existing one in
+production. 3a exists only for variants that share both the URL path
+*and* the filename contract of an already-served product.
 
-### 3a — same mirror already serves multiple products (GFS case)
+### 3a — same mirror already serves a structurally identical product
 
 `sources/aws.py`, `sources/gcloud.py`, `sources/azure.py`,
 `sources/nomads.py`, `sources/rda.py` already accept a `product`
 keyword on `build_url()` and `fetch_step()`. For a product hosted on
-the *same bucket path structure* (rare outside the GFS family), you
-can just pass the new `product` code and things work — the URL builder
+the *same bucket path structure and filename pattern* (rare outside
+the GFS family — e.g. `pgrb2.0p50` alongside `pgrb2.0p25`), you can
+just pass the new `product` code and things work — the URL builder
 substitutes it into the canonical filename.
 
-### 3b — distinct URL pattern per model (HRRR case)
+### 3b — distinct URL pattern per model (HRRR case) — **preferred**
 
 HRRR lives under `hrrr/prod/hrrr.YYYYMMDD/conus/...`, not
 `gfs/prod/gfs.YYYYMMDD/00/atmos/...`. Add one file per mirror:
@@ -170,13 +175,17 @@ changes:
 
 1. `BASE_URL` and `build_url()` reflect the product's path convention.
 2. `EARLIEST` / `RETENTION_DAYS` updated to the mirror's HRRR coverage.
-3. `canonical_filename()` either generalized in `sources/base.py` or
-   defined locally — HRRR uses `hrrr.t{HH}z.wrfprsf{FFF}.grib2`, which
-   doesn't fit GFS's pattern.
+3. Use `sources.base.format_filename(template, cycle=..., fxx=..., product=...)`
+   with the new product's template (e.g.
+   `"hrrr.t{cycle}z.wrfprsf{fxx:02d}.grib2"`) instead of
+   `canonical_filename()` (which is GFS-shaped).
 
 **Rule of thumb:** if 80% of the code is identical to the GFS source,
 factor the shared parts into `sources/base.py` helpers rather than
-letting `aws.py` and `aws_hrrr.py` drift.
+letting `aws.py` and `aws_hrrr.py` drift. **Do not edit the existing
+GFS source modules.** Their URL asserts in
+`tests/test_sources_mirrors.py` are the load-bearing check that
+production paths stay byte-identical.
 
 ### Register the source
 
@@ -236,14 +245,26 @@ src/sharktopus/deploy/azure/handler.py      # Container App
 
 Each handler is a tiny HTTP/event worker that takes a payload like
 `{date, cycle, fxx, product, bbox, variables, levels}`, fetches the
-byte-range from the *public* mirror, crops, returns the bytes. Adding
-a new product means:
+byte-range from the *public* mirror, crops, returns the bytes.
 
-1. Route the incoming `product` to the right public-mirror URL pattern
-   (same logic as step 3, but server-side).
-2. Whitelist the new product in the handler (defence in depth — don't
-   let arbitrary strings turn into S3 paths).
-3. Redeploy via `sharktopus --setup <cloud>`.
+The operational default is **one handler deployment per (cloud,
+product) pair** — the GFS Lambda/Cloud Run/Container App stays
+pointed at the GFS public bucket, and HRRR gets its own. That way a
+bad deploy on HRRR cannot degrade GFS, and free-tier quotas stay
+attributable.
+
+Adding a new product means:
+
+1. Copy the handler to a sibling directory
+   (`deploy/aws/handler_hrrr.py`, etc.), change `SOURCE_BUCKET` and
+   the key construction to the new product's layout.
+2. Extend `ALLOWED_PRODUCTS` at the top of the new handler to list
+   exactly the product codes that handler is willing to serve —
+   anything else returns HTTP 400. Defence in depth: this prevents a
+   malicious payload from turning an arbitrary string into an S3
+   key.
+3. Redeploy via `sharktopus --setup <cloud>` with the new handler
+   as the image.
 
 Quota tracking (`sharktopus.cloud.*_quota`) does **not** need changes —
 counters are keyed by provider, not product.

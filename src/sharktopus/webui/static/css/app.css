@@ -716,6 +716,137 @@ body {
 .about-logos img { display: block; height: 48px; width: auto; }
 .about-empty { color: var(--ink-muted); font-style: italic; }
 
+/* ------------------------------------------------------------ path input + filesystem picker */
+
+.path-input {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.path-input input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.path-input .btn { flex: 0 0 auto; padding: 6px 12px; font-size: 13px; }
+
+.fs-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 24, 38, .5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.fs-modal[hidden] { display: none; }
+.fs-modal-card {
+  background: #fff;
+  border-radius: var(--radius);
+  width: min(640px, 92vw);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+.fs-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.fs-modal-head h3 { margin: 0; font-size: 15px; color: var(--brand-ink); }
+.fs-modal-head .btn { padding: 2px 10px; font-size: 18px; line-height: 1; }
+.fs-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--paper-sink);
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+}
+.fs-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  overflow: auto;
+  flex: 1 1 auto;
+}
+.fs-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  align-items: center;
+  font-size: 13px;
+}
+.fs-crumb {
+  background: transparent;
+  border: none;
+  color: var(--brand);
+  padding: 2px 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.fs-crumb:hover { text-decoration: underline; }
+.fs-crumb-sep { color: var(--ink-muted); }
+.fs-current {
+  font-size: 12px;
+  color: var(--ink-muted);
+  padding: 4px 6px;
+  background: var(--paper-sink);
+  border-radius: var(--radius-sm);
+  word-break: break-all;
+}
+.fs-current code { color: var(--ink); background: transparent; }
+.fs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  max-height: 38vh;
+  overflow: auto;
+}
+.fs-list li { border-bottom: 1px solid var(--border-soft); }
+.fs-list li:last-child { border-bottom: none; }
+.fs-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+}
+.fs-entry:hover { background: var(--paper-sink); }
+.fs-entry-parent { color: var(--ink-muted); }
+.fs-entry-icon { font-size: 15px; }
+.fs-empty { padding: 12px; color: var(--ink-muted); font-style: italic; text-align: center; }
+.fs-mkdir {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.fs-mkdir input {
+  flex: 1 1 auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 14px;
+}
+.fs-error { margin: 0; color: var(--fail); font-size: 13px; }
+.fs-ok { margin: 0; color: var(--ok); font-size: 13px; }
+
 /* ------------------------------------------------------------ var/level cascade picker */
 
 .vl-host .vl-intro {

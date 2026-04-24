@@ -1,13 +1,16 @@
 cff-version: 1.2.0
 message: "If you use sharktopus in academic work, please cite it as below."
-title: "sharktopus: Download and crop GFS forecast data"
+title: "sharktopus: Cloud-native GRIB cropper"
 abstract: >-
-  sharktopus is a Python library for acquiring NOAA GFS forecast data from
-  multiple mirrors (NOMADS, AWS S3, Google Cloud Storage, Azure Blob, NCAR RDA)
-  with optional serverless cloud-side cropping. Originally developed at the
-  Instituto de Estudos do Mar Almirante Paulo Moreira (IEAPM) to support
-  numerical weather prediction workflows, it is distributed as a
-  community-owned open-source project.
+  sharktopus is a Python library that crops GRIB2 weather data in the cloud —
+  by bounding box, variables, and vertical levels — before it hits the user's
+  disk. It acquires forecast data from multiple mirrors (NOMADS, AWS S3,
+  Google Cloud Storage, Azure Blob, NCAR RDA) and ships GFS 0.25° end-to-end
+  today, with HRRR, NAM, and ECMWF open-data planned as the community grows.
+  Originally developed with support from the CONVECT project
+  (CNPq Chamada Eventos Extremos 15/2023) at the Instituto de Estudos do Mar
+  Almirante Paulo Moreira (IEAPM), sharktopus is distributed as an
+  independent, community-owned open-source project.
 type: software
 authors:
   - family-names: "Leandro"

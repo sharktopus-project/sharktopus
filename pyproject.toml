@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sharktopus"
 version = "0.1.1"
-description = "Download and crop GFS forecast data — local sources first, serverless cloud optional."
+description = "Cloud-native GRIB cropper — crop before you download. GFS today; HRRR, NAM, ECMWF open-data as the community grows."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

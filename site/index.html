@@ -88,6 +88,35 @@
         because that's the lineage — override with your own lists for any other consumer.
     </p>
 
+    <h2>Local web UI — no code required</h2>
+    <p>
+        Don't want to write Python? Run <code>sharktopus --ui</code> and drive the whole thing from
+        a local control panel: submit jobs, monitor free-tier quota, manage credentials, browse
+        inventory. The UI binds to <code>127.0.0.1</code> only (no auth, no network exposure) so it's
+        safe on any machine you already log into; for remote use, SSH-tunnel the port.
+    </p>
+<pre><code>pip install 'sharktopus[ui]'
+sharktopus --ui</code></pre>
+    <p style="margin-top: 1rem;">
+        <a href="assets/screenshots/webui-dashboard.png" target="_blank">
+            <img src="assets/screenshots/webui-dashboard.png"
+                 alt="sharktopus dashboard — dashboard page with stats and recent jobs"
+                 style="width: 100%; max-width: 760px; border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 2px 8px rgba(15, 74, 88, 0.12); display: block; margin: 0 auto;">
+        </a>
+    </p>
+    <p>
+        The Submit page is the full CLI on a form — product picker, calendar-driven cycle selection,
+        Leaflet map for the bounding box, variable / level cascade, source priority, directory
+        browser for output paths.
+    </p>
+    <p style="margin-top: 1rem;">
+        <a href="assets/screenshots/webui-submit.png" target="_blank">
+            <img src="assets/screenshots/webui-submit.png"
+                 alt="sharktopus submit form — product picker, dates and bounding box"
+                 style="width: 100%; max-width: 760px; border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 2px 8px rgba(15, 74, 88, 0.12); display: block; margin: 0 auto;">
+        </a>
+    </p>
+
     <div style="margin-top: 1.5rem;">
         <a href="https://github.com/sharktopus-project" class="btn">GitHub</a>
         <a href="https://pypi.org/project/sharktopus/" class="btn btn-outline">PyPI</a>

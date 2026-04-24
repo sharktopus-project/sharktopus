@@ -58,6 +58,31 @@ with install hints is raised when nothing works.
 > Sign-up, billing, and minimum IAM roles per provider are documented in
 > [`docs/ACCOUNT_SETUP.md`](docs/ACCOUNT_SETUP.md). You only need one cloud.
 
+## Web UI — the easy path
+
+If you'd rather not write Python, sharktopus ships a local web UI that
+covers the full CLI surface — submit jobs, inspect inventory, monitor
+free-tier quota, manage credentials, and run the guided cloud setup.
+
+```bash
+pip install 'sharktopus[ui]'
+sharktopus --ui          # opens http://127.0.0.1:8765/
+```
+
+![sharktopus dashboard](docs/screenshots/webui-dashboard.png)
+
+The Submit page is the full CLI, on a form — product picker, date
+range, Leaflet map for the bounding box, variable / level cascade,
+source priority, and a directory browser for `dest` / `root`.
+
+![sharktopus submit form](docs/screenshots/webui-submit.png)
+
+**Local-only by design.** No authentication, binds to `127.0.0.1` only,
+the directory picker reads your own disk. For remote use, prefer an
+SSH port-forward (`ssh -L 8765:localhost:8765 user@host`) — recipes
+are on the in-app `/help` page. Don't bind to `0.0.0.0` on an
+untrusted network.
+
 ## Quick start
 
 ### Layer 0 — wgrib2 utilities

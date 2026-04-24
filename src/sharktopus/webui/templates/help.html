@@ -47,6 +47,35 @@ sharktopus \
       <p><strong>Historical run (pre-2021):</strong> priority <code>rda</code>.</p>
       <p><strong>Large-bbox quick test:</strong> priority <code>aws_crop</code>, no <code>nomads_filter</code>.</p>
     </div>
+
+    <div class="card">
+      <h3>Starting from zero on AWS / GCloud / Azure</h3>
+      <p>Each cloud's <a href="/setup">setup wizard</a> assumes you already have an account with billing enabled and an IAM identity with the right roles. If you don't, the full walk-through (sign-up, billing, IAM, verification, gotchas) lives on GitHub:</p>
+      <p><a href="https://github.com/sharktopus-project/sharktopus/blob/main/docs/ACCOUNT_SETUP.md" target="_blank" rel="noopener"><strong>docs/ACCOUNT_SETUP.md</strong></a></p>
+      <p>Quick sign-up links:</p>
+      <ul>
+        <li><a href="https://portal.aws.amazon.com/billing/signup" target="_blank" rel="noopener">AWS — create account</a> (card required, free tier 1M Lambda requests/mo)</li>
+        <li><a href="https://cloud.google.com/free" target="_blank" rel="noopener">Google Cloud — create account</a> (card required, $300 trial credit + free tier)</li>
+        <li><a href="https://azure.microsoft.com/free" target="_blank" rel="noopener">Azure — create account</a> (card required, $200 trial credit + free tier)</li>
+      </ul>
+      <p>Once signed up, run <code>sharktopus --setup {provider}</code> in a terminal — it's interactive and handles the deploy end-to-end.</p>
+    </div>
+
+    <div class="card">
+      <h3>Accessing the UI remotely</h3>
+      <p>The UI ships bound to <code>127.0.0.1</code> (local only) and has <strong>no authentication</strong> — it is designed for single-user, single-machine use. Two safe ways to drive it from another machine:</p>
+      <p><strong>SSH port forward (recommended):</strong> runs the browser on your laptop and tunnels the port. Server stays local-only:</p>
+      <pre class="code"># on the remote server
+sharktopus --ui        # default 127.0.0.1:8765
+
+# on your laptop
+ssh -L 8765:localhost:8765 user@server
+# then open http://localhost:8765 in your local browser</pre>
+      <p><strong>SSH X-forwarding:</strong> runs the browser on the server, displays the window on your laptop. Heavier (X over network) but works:</p>
+      <pre class="code">ssh -X user@server
+sharktopus --ui &amp;&amp; firefox http://127.0.0.1:8765</pre>
+      <p><strong>Do not</strong> use <code>--ui-host 0.0.0.0</code> on an untrusted network: anyone who reaches the port can submit jobs, read credentials, and browse the server filesystem through the directory picker. If you really need LAN access, put it behind an authenticated reverse proxy (nginx/Caddy + TLS + basic auth).</p>
+    </div>
   </div>
 </section>
 

@@ -40,10 +40,23 @@ pip install sharktopus --no-binary sharktopus
 #   export SHARKTOPUS_WGRIB2=/path/to/wgrib2
 ```
 
+> **Runtime libs (minimal Linux hosts).** The bundled `wgrib2` binary
+> dynamically links `libgfortran5` and `libgomp1` (OpenMP). Most
+> desktop distros ship these by default, but minimal server / container
+> images may not — on those, install them alongside sharktopus:
+> `apt install libgfortran5 libgomp1` (Debian/Ubuntu) or
+> `dnf install libgfortran libgomp` (RHEL family). Conda/pip do not
+> ship these because they're ABI-dependent on the host's glibc.
+
 Resolution order at runtime: explicit `wgrib2=...` argument →
 `$SHARKTOPUS_WGRIB2` → bundled binary under
 `site-packages/sharktopus/_bin/` → `$PATH`. A clear `WgribNotFoundError`
 with install hints is raised when nothing works.
+
+> **Starting from zero on AWS / GCloud / Azure?** Sharktopus can deploy its
+> cropper to any of the three so the heavy work runs close to the data.
+> Sign-up, billing, and minimum IAM roles per provider are documented in
+> [`docs/ACCOUNT_SETUP.md`](docs/ACCOUNT_SETUP.md). You only need one cloud.
 
 ## Quick start
 

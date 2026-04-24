@@ -2,22 +2,80 @@
 {% block title %}sharktopus — setup {{ provider }}{% endblock %}
 {% block content %}
 
+{% set info = {
+  "aws":    {"name": "AWS",          "signup": "https://portal.aws.amazon.com/billing/signup",
+             "free": "1M Lambda requests / month",
+             "verify": "aws sts get-caller-identity",
+             "console": "https://console.aws.amazon.com/"},
+  "gcloud": {"name": "Google Cloud", "signup": "https://cloud.google.com/free",
+             "free": "$300 trial credit + free tier (2M Cloud Run invocations)",
+             "verify": "gcloud auth list",
+             "console": "https://console.cloud.google.com/"},
+  "azure":  {"name": "Azure",        "signup": "https://azure.microsoft.com/free",
+             "free": "$200 trial credit + 180k Container Apps vCPU-s / month",
+             "verify": "az account show",
+             "console": "https://portal.azure.com/"},
+} %}
+{% set meta = info.get(provider, {"name": provider, "signup": "", "free": "", "verify": "", "console": ""}) %}
+
 <section class="section">
   <div class="section-head">
-    <h2>Setup — {{ provider }}</h2>
+    <h2>Setup — {{ meta.name }}</h2>
     <a class="btn btn-ghost btn-sm" href="/setup">← back to setup</a>
   </div>
 
-  <div class="alert alert-info">
-    <strong>Coming in M8–M10.</strong>
-    The wizard will drive <code>deploy/{{ provider }}/provision.py</code> step-by-step with
-    streaming logs right here. For today, run it from the terminal:
-    <pre class="code">sharktopus --setup {{ provider }}</pre>
+  <div class="cards">
+    <div class="card">
+      <h3>1. Do you already have a {{ meta.name }} account?</h3>
+      <p>If <strong>yes</strong>, skip to step 3. If <strong>no</strong>:</p>
+      <ul>
+        <li>Sign up at <a href="{{ meta.signup }}" target="_blank" rel="noopener">{{ meta.signup }}</a></li>
+        <li>A credit or debit card is required for identity verification; free-tier usage is not charged ({{ meta.free }}).</li>
+        <li>For the full walk-through (billing alerts, IAM roles, gotchas), read
+          <a href="https://github.com/sharktopus-project/sharktopus/blob/main/docs/ACCOUNT_SETUP.md#{{ provider }}" target="_blank" rel="noopener"><strong>docs/ACCOUNT_SETUP.md</strong></a>.
+        </li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>2. Create the IAM identity</h3>
+      <p>
+        sharktopus needs permission to create a bucket, push a container image,
+        and deploy a serverless service in <em>your</em> account. The minimum
+        roles per provider are documented in
+        <a href="https://github.com/sharktopus-project/sharktopus/blob/main/docs/ACCOUNT_SETUP.md#{{ provider }}" target="_blank" rel="noopener">ACCOUNT_SETUP.md → {{ meta.name }}</a>.
+        For the first deploy, the admin-equivalent role on each cloud works.
+      </p>
+      <p>
+        Console link: <a href="{{ meta.console }}" target="_blank" rel="noopener">{{ meta.console }}</a>
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>3. Verify the credentials work</h3>
+      {% if meta.verify %}
+      <pre class="code">{{ meta.verify }}</pre>
+      <p>No error = you're ready for step 4.</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3>4. Run the guided deploy</h3>
+      <p>The interactive wizard lives in the terminal today. It offers 2-3 auth paths per provider (browser OAuth, CLI, static keys / service principal) so you can pick the one that fits your host.</p>
+      <pre class="code">sharktopus --setup {{ provider }}</pre>
+      <p class="muted">
+        <em>Note:</em> a streaming-in-the-browser version of this wizard is
+        planned (milestones M8–M10). Today the terminal is the source of truth.
+      </p>
+    </div>
   </div>
 
+  <div class="section-head" style="margin-top:1.5rem">
+    <h3>What <code>sharktopus --setup {{ provider }}</code> will do</h3>
+  </div>
   <ol class="steps">
-    <li>Authenticate (browser-based OAuth or SDK login).</li>
-    <li>Enable required APIs in the target project.</li>
+    <li>Authenticate (you pick: browser OAuth, CLI, or keys).</li>
+    <li>Enable the required APIs / resource providers in your project.</li>
     <li>Create the crop service's storage bucket.</li>
     <li>Create the container repository (ECR / Artifact Registry / ACR).</li>
     <li>Pull the <code>sharktopus-crop</code> image from GHCR.</li>

@@ -22,12 +22,12 @@
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--paper); color: var(--ink); }
         header {
             background: linear-gradient(160deg, #0b3a46 0%, #145564 55%, #1c6e7f 100%);
-            color: white; padding: 2.5rem 1.5rem 3rem; text-align: center;
+            color: white; padding: 1.2rem 1.5rem 1.5rem; text-align: center;
             box-shadow: 0 2px 8px rgba(15, 74, 88, 0.15);
         }
-        header img.logo { max-width: 560px; width: 88%; height: auto; display: block; margin: 0 auto 0.5rem; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.25)); }
+        header img.logo { max-width: 280px; width: 55%; height: auto; display: block; margin: 0 auto 0.25rem; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.25)); }
         .container { max-width: 820px; margin: 2rem auto; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 4px 10px rgba(15, 74, 88, 0.08); }
-        h1 { margin: 0; font-size: 2.2rem; letter-spacing: 0.5px; }
+        h1 { margin: 0; font-size: 1.8rem; letter-spacing: 0.5px; }
         h2 { color: var(--deep); border-bottom: 2px solid var(--rule); padding-bottom: 0.5rem; margin-top: 2rem; }
         h3 { color: var(--mid); margin-top: 1.5rem; }
         p { line-height: 1.65; }
@@ -38,7 +38,7 @@
         .btn:hover { background-color: var(--deep); }
         .btn-outline { background: white; color: var(--mid); border: 2px solid var(--mid); }
         .btn-outline:hover { background: var(--mid); color: white; }
-        .tagline { font-size: 1.15rem; opacity: 0.95; margin-top: 0.6rem; }
+        .tagline { font-size: 1.05rem; opacity: 0.95; margin-top: 0.35rem; }
         ul { line-height: 1.7; }
         footer { text-align: center; padding: 1.5rem; color: #5a7380; font-size: 0.9rem; margin-top: 2rem; }
         footer a { color: var(--mid); text-decoration: none; margin: 0 0.4rem; }
@@ -88,7 +88,47 @@
         because that's the lineage — override with your own lists for any other consumer.
     </p>
 
-    <h2>Local web UI — no code required</h2>
+    <h2>Three ways to use it</h2>
+    <p>
+        sharktopus is a Python library with a one-command CLI and an optional
+        local web UI on top. Use whichever matches your workflow — they all
+        produce the same cropped GRIB2 output.
+    </p>
+
+    <h3>1. CLI — one command</h3>
+    <p>
+        Good for shell pipelines, cron jobs, Makefiles. Install, then run:
+    </p>
+<pre><code>pip install sharktopus
+
+sharktopus \
+    --start 2024012100 --end 2024012112 --step 6 \
+    --lat-s -25 --lat-n -20 --lon-w -45 --lon-e -40 \
+    --priority gcloud_crop aws_crop nomads_filter \
+    --dest ./my-run/</code></pre>
+
+    <h3>2. Python — a few lines in a script</h3>
+    <p>
+        Good for notebooks, ML pipelines, Airflow/Prefect tasks, or anywhere
+        you already have Python doing the rest of the work:
+    </p>
+<pre><code>from sharktopus import fetch_batch
+
+fetch_batch(
+    timestamps=["2024012100", "2024012106"],
+    bbox=(-25, -20, -45, -40),       # lat_s, lat_n, lon_w, lon_e
+    variables=["TMP", "UGRD", "VGRD", "HGT"],
+    levels=["500 mb", "850 mb", "surface"],
+    priority=["gcloud_crop", "aws_crop", "nomads_filter"],
+    dest="./my-run/",
+)</code></pre>
+    <p>
+        See <a href="https://github.com/sharktopus-project/sharktopus#python-api">the Python
+        API section</a> of the README for <code>xarray</code> integration and batch-level
+        parallelism controls.
+    </p>
+
+    <h3>3. Web UI — no code</h3>
     <p>
         Don't want to write Python? Run <code>sharktopus --ui</code> and drive the whole thing from
         a local control panel: submit jobs, monitor free-tier quota, manage credentials, browse

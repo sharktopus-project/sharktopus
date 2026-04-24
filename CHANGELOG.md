@@ -4,6 +4,28 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-04-23 (PyPI)
+
+### Added
+- **WebUI screenshots in docs and PyPI page** (2026-04-23). README and the
+  Cloudflare Pages landing page (`site/index.html`) now feature two
+  full-resolution screenshots — the dashboard and the Submit page — so
+  first-time visitors immediately see what the UI offers without having
+  to install and run it. README image URLs are absolute
+  (`raw.githubusercontent.com/.../main/docs/screenshots/...`) so they
+  also render on the PyPI project page.
+
+### Changed
+- **Package author email** (2026-04-23). `pyproject.toml` author entry
+  switched from `leandrometeoro@gmail.com` to
+  `sharktopus.convect@gmail.com` — the project-wide maintainer address,
+  consistent with the site Contact section and the GCP project owner.
+- **Inspiration / origin section removed from README** (2026-04-23). The
+  project's origin and CNPq/CONVECT funding context are covered on the
+  in-UI `/about` page and in `GOVERNANCE.md`; repeating them in README
+  was redundant and framed the package as a CONVECT appendage rather
+  than an independent open-source project.
+
 ### Added
 - **Multi-platform wheel builds** (2026-04-23). `.github/workflows/build-wheels.yml`
   now ships jobs for macOS arm64 (Apple Silicon, runner `macos-14`), macOS

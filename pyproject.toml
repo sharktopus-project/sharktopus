@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sharktopus"
-version = "0.1.0"
+version = "0.1.1"
 description = "Download and crop GFS forecast data — local sources first, serverless cloud optional."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Leandro", email = "leandrometeoro@gmail.com" },
+    { name = "Leandro", email = "sharktopus.convect@gmail.com" },
 ]
 keywords = ["gfs", "weather", "wrf", "grib2", "noaa", "forecast"]
 classifiers = [

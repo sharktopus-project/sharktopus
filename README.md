@@ -69,13 +69,13 @@ pip install 'sharktopus[ui]'
 sharktopus --ui          # opens http://127.0.0.1:8765/
 ```
 
-![sharktopus dashboard](docs/screenshots/webui-dashboard.png)
+![sharktopus dashboard](https://raw.githubusercontent.com/sharktopus-project/sharktopus/main/docs/screenshots/webui-dashboard.png)
 
 The Submit page is the full CLI, on a form — product picker, date
 range, Leaflet map for the bounding box, variable / level cascade,
 source priority, and a directory browser for `dest` / `root`.
 
-![sharktopus submit form](docs/screenshots/webui-submit.png)
+![sharktopus submit form](https://raw.githubusercontent.com/sharktopus-project/sharktopus/main/docs/screenshots/webui-submit.png)
 
 **Local-only by design.** No authentication, binds to `127.0.0.1` only,
 the directory picker reads your own disk. For remote use, prefer an
@@ -525,20 +525,6 @@ nomads.fetch_step(..., bbox=bbox, pad_lon=5.0, pad_lat=5.0)
 Both raise `sharktopus.sources.SourceUnavailable` when the step cannot be
 served (404, NOMADS retention exceeded, etc.) so Layer 2's orchestrator
 can fall back to another mirror.
-
-## Inspiration and origin
-
-`sharktopus` is being extracted from the CONVECT project's GFS fetcher
-(<https://github.com/leandrometeoro>…/CONVECT, `containers/fetcher/scripts/`),
-where the same wgrib2/idx patterns appear across five download scripts
-(NOMADS, NOMADS-filter, AWS S3, Google Cloud Storage, Azure Blob). This
-package consolidates those utilities into a single reusable library.
-
-Organization inspired by [Herbie](https://herbie.readthedocs.io/), but with a
-narrower scope: **GFS only, download + crop only** (no plotting, no
-inventory DSL, no multi-model abstraction).
-
-See `docs/ORIGIN.md` for a per-function mapping CONVECT → sharktopus.
 
 ## Roadmap
 

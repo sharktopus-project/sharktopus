@@ -1,0 +1,66 @@
+{% set name = "sharktopus" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
+  sha256: 43e52b067032f6457b556d75d20c7b83cc206aa9c94f246649a72363db5077f5
+
+build:
+  number: 0
+  noarch: python
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  entry_points:
+    - sharktopus = sharktopus.cli:main
+
+requirements:
+  host:
+    - python >=3.10
+    - pip
+    - hatchling
+  run:
+    - python >=3.10
+    # wgrib2 is resolved at runtime via $PATH; conda-forge ships a
+    # current wgrib2 build so pulling it as a run-dep avoids the
+    # "install sharktopus, then separately apt-get wgrib2" dance that
+    # the PyPI flow needs on minimal hosts.
+    - wgrib2
+
+test:
+  imports:
+    - sharktopus
+    - sharktopus.cli
+    - sharktopus.io.wgrib2
+    - sharktopus.sources.base
+  commands:
+    - sharktopus --help
+    - sharktopus --list-sources
+    # Bundled _bin/ is intentionally empty in the sdist → the resolver
+    # must find conda-forge's wgrib2 on $PATH for the CLI to be useful.
+    - wgrib2 -version
+
+about:
+  home: https://sharktopus.leandrometeoro.com.br/
+  summary: Cloud-native GRIB cropper — crop GRIB2 before you download
+  description: |
+    sharktopus fetches NOAA GFS forecast data and crops GRIB2 files
+    *in the cloud* — by bounding box, variables, and vertical levels —
+    before they hit your disk. A small serverless cropper runs on
+    AWS Lambda, Google Cloud Run, or Azure Container Apps (in the
+    user's own account). Typical cycle goes from ~12 GB / ~20 min to
+    ~200 MB / ~30 s.
+    The core is deliberately product-agnostic: HRRR, NAM, RAP, and
+    ECMWF open-data can be plugged in without changes to the GFS
+    production path. Today the package ships GFS 0.25° end-to-end.
+  license: MIT
+  license_family: MIT
+  license_file: LICENSE
+  doc_url: https://github.com/sharktopus-project/sharktopus#readme
+  dev_url: https://github.com/sharktopus-project/sharktopus
+
+extra:
+  recipe-maintainers:
+    - leandrometeoro

@@ -135,7 +135,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--ui-host", default="127.0.0.1", dest="ui_host",
-        help="Bind address for --ui (default 127.0.0.1).",
+        help=(
+            "Bind address for --ui (default 127.0.0.1, local only). "
+            "The UI has no authentication — do not bind to 0.0.0.0 on "
+            "untrusted networks. For remote access prefer an SSH tunnel: "
+            "ssh -L 8765:localhost:8765 user@host."
+        ),
     )
     parser.add_argument(
         "--ui-port", type=int, default=8765, dest="ui_port",

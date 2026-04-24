@@ -50,17 +50,140 @@ jobs:
           path: dist/*.whl
           if-no-files-found: error
 
-  # TODO: enable once the Linux x86_64 flow is green and we have a case
-  # for each extra platform. Each needs its own wgrib2 compile path
-  # (cross-compile or native runner) and appropriate wheel-repair step.
-  #
-  # linux-aarch64:
-  #   runs-on: ubuntu-24.04-arm
-  #   container: quay.io/pypa/manylinux_2_28_aarch64
-  #   …
-  #
-  # macos-arm64:
-  #   runs-on: macos-14
-  #   steps:
-  #     - …compile wgrib2 via Homebrew gfortran…
-  #     - …delocate-wheel instead of auditwheel…
+  linux-aarch64:
+    name: Linux aarch64 (manylinux_2_28)
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: quay.io/pypa/manylinux_2_28_aarch64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gfortran
+        run: dnf install -y gcc-gfortran
+
+      - name: Put CPython 3.12 on PATH
+        run: echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
+
+      - name: Install build tooling
+        run: pip install --upgrade pip build auditwheel
+
+      - name: Compile wgrib2
+        run: scripts/build_wgrib2.sh /tmp/wgrib2
+
+      - name: Bundle into wheel + auditwheel repair
+        env:
+          SHARKTOPUS_WGRIB2_SRC: /tmp/wgrib2
+          SHARKTOPUS_MANYLINUX_PLAT: manylinux_2_28_aarch64
+        run: scripts/bundle_wgrib2.sh
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sharktopus-linux-aarch64
+          path: dist/*.whl
+          if-no-files-found: error
+
+  macos-arm64:
+    name: macOS arm64 (Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gfortran via Homebrew
+        # Homebrew's gcc formula ships both gcc-N and gfortran (no
+        # version suffix on gfortran). We force CC below to the
+        # Homebrew gcc so wgrib2's C sources don't hit Apple's Clang
+        # (which calls itself gcc on /usr/bin/gcc but can't talk to
+        # Homebrew's libgfortran ABI cleanly).
+        run: |
+          brew update-reset >/dev/null
+          brew install gcc
+          echo "BREW_GCC=$(ls /opt/homebrew/bin/gcc-* | grep -E 'gcc-[0-9]+$' | head -1)" >> "$GITHUB_ENV"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: pip install --upgrade pip build delocate
+
+      - name: Compile wgrib2
+        env:
+          FC: gfortran
+        run: |
+          export CC="$BREW_GCC"
+          scripts/build_wgrib2.sh /tmp/wgrib2
+
+      - name: Bundle wheel
+        env:
+          SHARKTOPUS_WGRIB2_SRC: /tmp/wgrib2
+        run: scripts/bundle_wgrib2.sh
+
+      - name: delocate-wheel (vendor libgfortran/libgomp)
+        run: |
+          mkdir -p dist/repaired
+          delocate-wheel -v -w dist/repaired --require-archs arm64 dist/sharktopus-*.whl
+          rm -f dist/sharktopus-*macosx_*.whl dist/sharktopus-*-py3-none-any.whl
+          mv dist/repaired/*.whl dist/
+          rmdir dist/repaired
+          ls -l dist/
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sharktopus-macos-arm64
+          path: dist/*.whl
+          if-no-files-found: error
+
+  macos-x86_64:
+    name: macOS x86_64 (Intel)
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gfortran via Homebrew
+        run: |
+          brew update-reset >/dev/null
+          brew install gcc
+          # Intel Homebrew lives under /usr/local, not /opt/homebrew.
+          echo "BREW_GCC=$(ls /usr/local/bin/gcc-* | grep -E 'gcc-[0-9]+$' | head -1)" >> "$GITHUB_ENV"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: pip install --upgrade pip build delocate
+
+      - name: Compile wgrib2
+        env:
+          FC: gfortran
+        run: |
+          export CC="$BREW_GCC"
+          scripts/build_wgrib2.sh /tmp/wgrib2
+
+      - name: Bundle wheel
+        env:
+          SHARKTOPUS_WGRIB2_SRC: /tmp/wgrib2
+        run: scripts/bundle_wgrib2.sh
+
+      - name: delocate-wheel (vendor libgfortran/libgomp)
+        run: |
+          mkdir -p dist/repaired
+          delocate-wheel -v -w dist/repaired --require-archs x86_64 dist/sharktopus-*.whl
+          rm -f dist/sharktopus-*macosx_*.whl dist/sharktopus-*-py3-none-any.whl
+          mv dist/repaired/*.whl dist/
+          rmdir dist/repaired
+          ls -l dist/
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sharktopus-macos-x86_64
+          path: dist/*.whl
+          if-no-files-found: error

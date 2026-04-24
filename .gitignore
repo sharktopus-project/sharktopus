@@ -21,3 +21,8 @@ src/sharktopus/_bin/wgrib2.exe
 # keep out of the public tree until verification lands).
 deploy/gcloud/oauth_client.json
 client_secret_*.apps.googleusercontent.com.json
+
+# PyPI / TestPyPI API tokens — never commit.
+*token*
+pypi-*.txt
+.pypirc

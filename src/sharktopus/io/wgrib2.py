@@ -31,7 +31,7 @@ __all__ = [
 ]
 
 
-BUNDLED_BIN_DIR = Path(__file__).resolve().parent / "_bin"
+BUNDLED_BIN_DIR = Path(__file__).resolve().parent.parent / "_bin"
 
 
 class WgribNotFoundError(RuntimeError):

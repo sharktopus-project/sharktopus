@@ -71,7 +71,7 @@ if [ "$(uname -s)" = "Linux" ]; then
     echo ">>> ldd (portability check)"
     # Only base-system libs are allowed; anything else will fail at
     # wheel install on users' machines.
-    bad_deps="$(ldd "$dest" | awk '/=>/{print $1}' | grep -vE '^(libc|libm|libmvec|libgfortran|libgomp|libpthread|libgcc_s|libdl|libquadmath|linux-vdso)' || true)"
+    bad_deps="$(ldd "$dest" | awk '/=>/{print $1}' | grep -vE '^(libc|libm|libmvec|libgfortran|libgomp|libpthread|libgcc_s|libdl|libquadmath|libz|linux-vdso)' || true)"
     if [ -n "$bad_deps" ]; then
         echo "wgrib2 depends on libs that are not manylinux-safe:" >&2
         echo "$bad_deps" >&2
@@ -89,12 +89,15 @@ echo ">>> wheel:"
 ls -l dist/
 
 if [ "$(uname -s)" = "Linux" ] && command -v auditwheel >/dev/null 2>&1; then
-    echo ">>> auditwheel repair (vendor libgfortran, tag manylinux)"
+    # Default to x86_64; CI overrides via $SHARKTOPUS_MANYLINUX_PLAT
+    # (e.g. manylinux_2_28_aarch64 on ARM runners).
+    plat="${SHARKTOPUS_MANYLINUX_PLAT:-manylinux_2_28_x86_64}"
+    echo ">>> auditwheel repair (plat=$plat, vendor libgfortran)"
     # On a dev laptop this usually fails because the host glibc is newer
-    # than manylinux_2_28 — that's expected, CI builds the release wheel
-    # inside a manylinux_2_28 container. Don't crash the local flow.
+    # than the manylinux tag — that's expected, CI builds the release
+    # wheel inside a manylinux_2_28 container. Don't crash the local flow.
     if auditwheel repair \
-        --plat manylinux_2_28_x86_64 \
+        --plat "$plat" \
         --wheel-dir dist/ \
         dist/sharktopus-*-linux_*.whl
     then
@@ -103,6 +106,6 @@ if [ "$(uname -s)" = "Linux" ] && command -v auditwheel >/dev/null 2>&1; then
         ls -l dist/
     else
         echo ">>> auditwheel repair skipped (likely host glibc > manylinux_2_28)."
-        echo ">>> the linux_x86_64 wheel above is usable locally; release wheels come from CI."
+        echo ">>> the linux wheel above is usable locally; release wheels come from CI."
     fi
 fi

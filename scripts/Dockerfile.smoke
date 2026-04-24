@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+#
+# Clean-host smoke test for the sharktopus wheel.
+#
+# Build context must provide:
+#   dist/*.whl   — the wheel to install (see scripts/smoke_install.sh)
+#
+# The image installs sharktopus + its [ui] extra into a fresh Ubuntu
+# 24.04 (glibc 2.39) venv and runs a handful of cheap CLI assertions
+# that catch the common clean-install failure modes:
+#   - missing runtime dependency
+#   - bundled wgrib2 binary not runnable on the target glibc
+#   - broken entry points
+#   - --ui extra failing to import FastAPI/uvicorn/jinja2
+#
+# This image is ephemeral — rebuild every release.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PATH=/opt/venv/bin:$PATH
+
+# The bundled wgrib2 binary dynamically links against libgfortran5 and
+# libgomp1 (OpenMP). These ship preinstalled on most Linux desktops but
+# minimal server / container images do not have them — users on those
+# need to ``apt install libgfortran5 libgomp1`` (or conda equivalent)
+# alongside pip-installing sharktopus. Documenting this here also
+# makes the smoke image a realistic proxy for a bare VM.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-pip ca-certificates \
+        libgfortran5 libgomp1 \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/venv \
+ && /opt/venv/bin/pip install -U pip
+
+COPY dist/ /tmp/dist/
+
+RUN pip install /tmp/dist/sharktopus-*.whl \
+ && pip install "sharktopus[ui] @ file:///tmp/dist/$(ls /tmp/dist/sharktopus-*.whl | xargs -n1 basename)"
+
+COPY scripts/smoke_checks.sh /usr/local/bin/smoke_checks.sh
+RUN chmod +x /usr/local/bin/smoke_checks.sh
+
+CMD ["/usr/local/bin/smoke_checks.sh"]

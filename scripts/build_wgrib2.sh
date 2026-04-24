@@ -60,10 +60,23 @@ sed -i.bak "s/^USE_NETCDF3=1/USE_NETCDF3=0/"   makefile
 sed -i.bak "s/^USE_NETCDF4=1/USE_NETCDF4=0/"   makefile
 
 echo ">>> compiling"
-CC=gcc FC=gfortran make -j"$(nproc 2>/dev/null || echo 2)"
+# CC / FC can be overridden by the caller — on macOS we need to force
+# the Homebrew gcc (gcc-15 etc.) instead of Apple's Clang-as-gcc.
+: "${CC:=gcc}"
+: "${FC:=gfortran}"
+export CC FC
+jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+# wgrib2's makefile has a race in ip2lib_d: gdswzd_mod.mod is sometimes
+# consumed before it's produced under `make -j`. When that happens,
+# fall back to a serial pass — missing .mod files are built first and
+# the rest picks up where it left off.
+make -j"$jobs" || make -j1
 
 echo ">>> stripping binary"
-strip wgrib2/wgrib2
+# macOS `strip` removes too much by default and can break the binary;
+# use -x (strip local symbols only). GNU strip accepts -x too and is
+# safe there.
+strip -x wgrib2/wgrib2 2>/dev/null || strip wgrib2/wgrib2
 
 cp wgrib2/wgrib2 "$out"
 chmod +x "$out"
@@ -72,5 +85,9 @@ echo ">>> result:"
 file "$out"
 du -h "$out" | cut -f1
 
-echo ">>> ldd:"
-ldd "$out" || true
+echo ">>> dynamic deps:"
+if command -v ldd >/dev/null 2>&1; then
+    ldd "$out" || true
+elif command -v otool >/dev/null 2>&1; then
+    otool -L "$out" || true
+fi

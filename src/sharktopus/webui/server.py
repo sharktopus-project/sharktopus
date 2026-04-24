@@ -21,8 +21,10 @@ def run(
     """Block on the uvicorn server. Returns a process exit code."""
     import uvicorn
 
+    requested_port = port
+    port = _resolve_port(host, port)
     url = f"http://{host}:{port}/"
-    _print_banner(host, port, url)
+    _print_banner(host, port, url, fell_back=(port != requested_port))
 
     if open_browser:
         _launch_browser(url)
@@ -45,15 +47,44 @@ def run(
     return 0 if server.started else 1
 
 
-def _print_banner(host: str, port: int, url: str) -> None:
-    sys.stderr.write(
-        "\n"
-        "  ┌──────────────────────────────────────────────┐\n"
-        f"  │  sharktopus web UI — http://{host:<16} │\n".replace(host, f"{host}:{port}", 1)
-        + f"  │  serving at:  {url:<33s}│\n"
-        "  │  Ctrl-C to stop.                             │\n"
-        "  └──────────────────────────────────────────────┘\n\n"
-    )
+def _resolve_port(host: str, preferred: int) -> int:
+    """Return *preferred* if it's free, otherwise an OS-picked free port.
+
+    We probe by binding a short-lived socket. There is a TOCTOU window
+    between the probe and uvicorn's bind — another process could steal
+    the port in between — but for single-user local dev that's fine.
+    """
+    if preferred and _port_is_free(host, preferred):
+        return preferred
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((host, 0))
+        return s.getsockname()[1]
+
+
+def _port_is_free(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def _print_banner(host: str, port: int, url: str, *, fell_back: bool = False) -> None:
+    lines = [
+        "",
+        f"  sharktopus web UI listening at {url}",
+    ]
+    if fell_back:
+        lines.append(
+            "  (default port was busy — picked a free one; "
+            "pass --ui-port N to override)"
+        )
+    lines.append("  Ctrl-C to stop.")
+    lines.append("")
+    sys.stderr.write("\n".join(lines) + "\n")
 
 
 def _launch_browser(url: str) -> None:

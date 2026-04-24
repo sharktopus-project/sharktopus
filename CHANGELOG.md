@@ -5,6 +5,122 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 
 ### Added
+- **Multi-platform wheel builds** (2026-04-23). `.github/workflows/build-wheels.yml`
+  now ships jobs for macOS arm64 (Apple Silicon, runner `macos-14`), macOS
+  x86_64 (Intel, runner `macos-13`), and Linux aarch64 (runner
+  `ubuntu-24.04-arm` with the `manylinux_2_28_aarch64` container) in addition
+  to the existing Linux x86_64 job. macOS jobs compile wgrib2 against
+  Homebrew's gcc/gfortran and delocate vendored `libgfortran`/`libgomp` into
+  the wheel; the Linux ARM job uses `auditwheel` with the aarch64 plat tag.
+  Windows is deliberately skipped — wgrib2 upstream has weak Windows support
+  and the target audience (meteorologists on Linux/macOS/WSL) is small
+  enough to wait until someone asks.
+- **`scripts/build_wgrib2.sh` portability** (2026-04-23). `CC`/`FC` are now
+  caller-overridable (needed on macOS because `/usr/bin/gcc` is Apple's
+  Clang, not Homebrew's real gcc), job count falls back via `sysctl -n
+  hw.ncpu` on macOS, `strip -x` replaces plain `strip` (macOS's default
+  strip was breaking the binary), and post-build dep inspection uses
+  `otool -L` when `ldd` isn't available.
+- **`scripts/bundle_wgrib2.sh` plat-tag override** (2026-04-23). The
+  manylinux platform tag passed to `auditwheel repair` is configurable via
+  `$SHARKTOPUS_MANYLINUX_PLAT`, defaulting to `manylinux_2_28_x86_64`. The
+  aarch64 CI job sets it to `manylinux_2_28_aarch64`.
+- **`docs/ACCOUNT_SETUP.md` + in-UI onboarding links** (2026-04-22). New
+  pre-authentication walk-through covering sign-up, billing, and minimum
+  IAM roles for AWS / Google Cloud / Azure. The WebUI `/help` page has a
+  dedicated "Starting from zero" card with the three sign-up links and a
+  link to the full guide on GitHub. The `/setup/{provider}` pages stopped
+  being bare "Coming in M8–M10" placeholders — they now surface the
+  sign-up URL, minimum-role link, verification command, and the
+  `sharktopus --setup {provider}` one-liner for the guided deploy. The
+  `/credentials` page sub-header also points at ACCOUNT_SETUP.md for
+  users who don't yet have credentials to show. README has a new
+  "Starting from zero" callout next to the install block linking to the
+  same doc. Motivation: `pip install sharktopus` targets users who may
+  not have a cloud account yet — the app needs to guide them to one
+  without requiring them to clone the repo.
+- **Remote-access guidance** (2026-04-22). The `/help` page now has a
+  dedicated "Accessing the UI remotely" card explaining that the UI is
+  single-user-local by design (no auth, directory picker reads the
+  server filesystem) and documenting the two safe patterns: SSH port
+  forward (recommended) and SSH X-forwarding. The `--ui-host` flag's
+  help text also warns against binding to `0.0.0.0` on untrusted
+  networks and points at the SSH tunnel recipe.
+- **About page** (`/about`, 2026-04-21). New SOBRE page in the WebUI
+  lists the project coordinator (Dra. Tânia Ocimoto Oda), initial
+  developer (Leandro Machado Cruz — IEAPM), and supporting
+  institutions (CNPq, IEAPM, UENF, UFPR). Future contributors can add
+  themselves via PR. The institution logos moved off the global
+  footer so the default UX doesn't foreground the backing
+  institutions — new contributors don't have to feel like joining
+  means joining *them*.
+- **`sources.base.format_filename(template, cycle=..., fxx=..., product=...)`**
+  (2026-04-21). Generic filename formatter for per-product source
+  modules. Complements the existing GFS-shaped
+  `canonical_filename()` / `gfs_canonical_filename` (alias) so new
+  sibling sources (`sources/aws_hrrr.py`, …) can express their own
+  filename convention without touching the GFS modules.
+- **Product whitelist in cloud handlers** (2026-04-21). AWS Lambda,
+  GCloud Cloud Run, and Azure Container Apps handlers now enforce
+  an `ALLOWED_PRODUCTS` set and return HTTP 400 for unknown product
+  codes. Defence in depth — the handlers point at the public GFS
+  mirror, so accepting arbitrary strings as `product` would let a
+  crafted payload construct unrelated keys.
+- **Clean-install smoke test** (2026-04-22). `scripts/smoke_install.sh`
+  + `scripts/Dockerfile.smoke` + `scripts/smoke_checks.sh` build the
+  wheel, install it into a minimal Ubuntu 24.04 image (python +
+  `libgfortran5` + `libgomp1` only — no compilers, no conda, no system
+  wgrib2), and run six assertions: `sharktopus --help`,
+  `--list-sources`, package import, bundled wgrib2 resolves & runs,
+  `[ui]` extra imports, and `--availability`. Run with
+  `scripts/smoke_install.sh` before every PyPI upload.
+- **Handler whitelist tests** (2026-04-22).
+  `tests/test_deploy_handlers.py` covers all three cloud handlers
+  (AWS Lambda, GCloud Cloud Run, Azure Container Apps) with three
+  cases each: allowed-products set membership, HTTP 400 on unknown
+  product, and known product passing the whitelist stage (verified
+  by stubbing the downstream I/O so failure happens *past* the
+  whitelist). Flask-based handlers skip gracefully when `flask` is
+  not installed; `flask>=3` is now listed under the `test` extra.
+
+### Fixed
+- **`--ui` auto-picks a free port when the default is busy** (2026-04-23).
+  Previously `sharktopus --ui` hard-failed with `OSError: Address already
+  in use` if port 8765 was taken. Now it probes the requested port, falls
+  back to an OS-assigned free port if needed, and prints the actual URL
+  so the user always knows where to point their browser.
+- **PyPI Homepage URL** (2026-04-23). `pyproject.toml`'s project-URL
+  Homepage now points at the public site `sharktopus.leandrometeoro.com.br`
+  instead of the GitHub repo (which is still listed as `Source`).
+- **Bundled wgrib2 lookup after subpackage reorg** (2026-04-22).
+  `BUNDLED_BIN_DIR` in `sharktopus.io.wgrib2` was pointing at
+  `sharktopus/io/_bin/` instead of `sharktopus/_bin/` after the
+  commit-`1504084` reorg moved the resolver into the `io` subpackage.
+  The bundled binary was silently ignored on every clean install —
+  callers only noticed if they had system-wide wgrib2 on `$PATH`
+  (fallback step 4 of the resolver). Caught by the new clean-install
+  smoke test.
+
+### Changed
+- **Branding: "GFS cropper" → "GRIB cropper"** (2026-04-21). Header
+  brand-tag and app docstring now read "cloud-native GRIB cropper";
+  a small italic slogan
+  "GFS today · HRRR tomorrow · who knows next?" sits beside it.
+  Visible signalling that the core is product-agnostic and the
+  roadmap is plural.
+- **Sticky header and footer** (2026-04-21). The topbar now pins to
+  the top of the viewport and the slim footer pins to the bottom;
+  page content scrolls under both with a subtle shadow to mark the
+  edge. The footer dropped to a single credit line plus a link to
+  the new About page — it no longer carries the institution logos.
+- **`docs/ADDING_A_PRODUCT.md`: sibling-file path is now the
+  preferred approach** (2026-04-21). Step 3b (one source file per
+  (cloud, product) pair) is explicitly marked as the default for any
+  new model; step 3a is reserved for variants that share both URL
+  path and filename contract with an already-served product. The
+  rationale: adding a product must never be able to regress an
+  existing one in production.
+
 - **Multi-product foundation in the WebUI** (2026-04-21). Introduces a
   `sharktopus.webui.products.Product` registry and per-product catalog
   JSONs under `src/sharktopus/webui/data/products/`. The Submit form's
@@ -318,7 +434,14 @@ All notable changes to this project will be documented here.
   kwarg, forwarded through the shared `_common` helpers. `None`
   preserves the previous behavior exactly (no deadline).
 
-## [0.1.0] — 2026-04-18
+## [0.1.0] — 2026-04-18 (tag) / 2026-04-23 (PyPI release)
+
+First public release on PyPI: <https://pypi.org/project/sharktopus/0.1.0/>.
+The wheel is manylinux_2_27_x86_64 / manylinux_2_28_x86_64 (built inside
+`quay.io/pypa/manylinux_2_28_x86_64` with `wgrib2` bundled). The tag was
+cut on 2026-04-18; the release to PyPI happened on 2026-04-23 after the
+multi-platform wheel pipeline landed.
+
 
 First tagged release. Layers 0, 1, 2 and 5 of the roadmap are complete:
 GRIB utilities (wgrib2 wrappers + `.idx` parser + byte-range computer),

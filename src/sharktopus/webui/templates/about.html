@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}sharktopus — about{% endblock %}
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>About sharktopus</h2>
+    <p class="section-intro">
+      Cloud-native GRIB cropper. Started for GFS; designed so HRRR, GEFS,
+      NAM, ECMWF, and whatever comes next can plug in without breaking
+      what already runs in production.
+    </p>
+  </div>
+
+  <div class="about-section">
+    <h2>Project coordination</h2>
+    <div class="about-person">
+      <span class="about-name">Dra.&nbsp;Tânia&nbsp;Ocimoto&nbsp;Oda</span>
+      <span class="about-role">
+        Principal investigator — CONVECT
+        (CNPq Chamada Eventos Extremos 15/2023).
+      </span>
+    </div>
+    <p>
+      sharktopus exists because the CONVECT project needed a repeatable,
+      cloud-portable way to fetch and crop forecast data for convective
+      systems research. The CLI and this local WebUI are the result.
+    </p>
+  </div>
+
+  <div class="about-section">
+    <h2>Initial development</h2>
+    <div class="about-person">
+      <span class="about-name">Leandro&nbsp;Machado&nbsp;Cruz</span>
+      <span class="about-role">
+        IEAPM — initial developer, maintainer.
+      </span>
+    </div>
+    <p>
+      Designed and implemented the orchestration, the cloud-crop handlers
+      (AWS Lambda, GCloud Cloud Run, Azure Container Apps), and this UI.
+      Contributions welcome on
+      <a href="https://github.com/sharktopus-project/sharktopus"
+         target="_blank" rel="noopener">GitHub</a>.
+    </p>
+  </div>
+
+  <div class="about-section">
+    <h2>Contributors</h2>
+    {% if contributors %}
+    <ul>
+      {% for c in contributors %}
+      <li>
+        <span class="about-name">{{ c.name }}</span>
+        {% if c.affiliation %}
+        — <span class="about-role">{{ c.affiliation }}</span>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="about-empty">
+      You could be here. Drop a PR that adds your name and (optionally)
+      your institution — sharktopus is an open, independent project and
+      all contributors are listed here.
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="about-section">
+    <h2>Supporting institutions</h2>
+    <p>
+      The following institutions support the research that originated
+      sharktopus. They are listed here as supporters — sharktopus is an
+      <strong>independent, MIT-licensed project</strong> and is not a
+      product of any of them.
+    </p>
+    <ul class="about-logos" aria-label="supporting institutions">
+      {% for inst in institutions %}
+      <li>
+        <a href="{{ inst.href }}" target="_blank" rel="noopener"
+           title="{{ inst.alt }}">
+          <img src="{{ inst.logo }}" alt="{{ inst.alt }}" loading="lazy">
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+{% endblock %}

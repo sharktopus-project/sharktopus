@@ -62,6 +62,9 @@ body {
   align-items: center;
   gap: 24px;
   box-shadow: 0 2px 12px rgba(0,0,0,.15);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .brand {
@@ -86,6 +89,17 @@ body {
   opacity: .75;
   padding-left: 8px;
   border-left: 1px solid rgba(255,255,255,.35);
+}
+.brand-slogan {
+  font-size: 11px;
+  font-style: italic;
+  opacity: .55;
+  padding-left: 8px;
+  border-left: 1px dashed rgba(255,255,255,.25);
+  letter-spacing: .01em;
+}
+@media (max-width: 720px) {
+  .brand-slogan { display: none; }
 }
 
 .topnav {
@@ -641,35 +655,66 @@ body {
 
 .footer {
   margin-top: auto;
-  padding: 24px clamp(16px, 3vw, 32px) 32px;
+  padding: 10px clamp(16px, 3vw, 32px);
   background: var(--ink);
   color: #d6e4f0;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
   align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  position: sticky;
+  bottom: 0;
+  z-index: 100;
+  box-shadow: 0 -2px 12px rgba(0,0,0,.25);
 }
-.footer-credits p { margin: 0 0 6px; max-width: 72ch; }
-.footer-lede { font-size: 14px; }
-.footer-note { font-size: 12px; color: #94a3b8; }
+.footer-credits { color: #d6e4f0; }
+.footer-credits strong { color: #fff; }
+.footer-about {
+  color: #d6e4f0;
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,255,255,.25);
+  transition: background .15s ease;
+}
+.footer-about:hover { background: rgba(255,255,255,.08); color: #fff; }
 
-.footer-logos {
+/* ------------------------------------------------------------ about page */
+
+.about-section {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.about-section h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: var(--brand-ink);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.about-section p { margin: 0 0 8px; line-height: 1.6; }
+.about-person { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+.about-person .about-name { font-weight: 600; color: var(--ink); }
+.about-person .about-role { color: var(--ink-muted); font-size: 13px; }
+
+.about-logos {
   list-style: none;
-  margin: 0;
+  margin: 12px 0 0;
   padding: 0;
   display: flex;
   gap: 20px;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
 }
-.footer-logos li { background: #fff; padding: 6px 10px; border-radius: 6px; }
-.footer-logos img { display: block; height: 40px; width: auto; }
-
-@media (max-width: 720px) {
-  .footer { grid-template-columns: 1fr; }
-  .footer-logos { justify-content: flex-start; }
-}
+.about-logos li { background: #fff; padding: 6px 10px; border: 1px solid var(--border-soft); border-radius: 6px; }
+.about-logos img { display: block; height: 48px; width: auto; }
+.about-empty { color: var(--ink-muted); font-style: italic; }
 
 /* ------------------------------------------------------------ var/level cascade picker */
 

@@ -18,7 +18,8 @@
     <img class="brand-mark" src="/static/img/mark-sm.png"
          alt="sharktopus shark-with-tentacles mark">
     <span class="brand-name">sharktopus</span>
-    <span class="brand-tag">cloud-native GFS cropper</span>
+    <span class="brand-tag">cloud-native GRIB cropper</span>
+    <span class="brand-slogan">GFS today &middot; HRRR tomorrow &middot; who knows next?</span>
   </a>
   <nav class="topnav" aria-label="primary">
     {% for item in nav_items %}
@@ -35,29 +36,11 @@
 </main>
 
 <footer class="footer">
-  <div class="footer-credits">
-    <p class="footer-lede">
-      sharktopus is open-source infrastructure built in support of the
-      <strong>CONVECT</strong> research project
-      (&ldquo;Previsão de sistemas convectivos&rdquo; &mdash;
-      CNPq Chamada Eventos Extremos 15/2023,
-      coord. Dra.&nbsp;Tânia Ocimoto Oda).
-    </p>
-    <p class="footer-note">
-      Independent project · MIT-licensed ·
-      not a product of any listed institution.
-    </p>
-  </div>
-  <ul class="footer-logos" aria-label="supporting institutions">
-    {% for inst in footer_institutions %}
-    <li>
-      <a href="{{ inst.href }}" target="_blank" rel="noopener"
-         title="{{ inst.alt }}">
-        <img src="{{ inst.logo }}" alt="{{ inst.alt }}" loading="lazy">
-      </a>
-    </li>
-    {% endfor %}
-  </ul>
+  <span class="footer-credits">
+    <strong>sharktopus</strong> &middot; independent project &middot;
+    MIT-licensed &middot; not a product of any listed institution.
+  </span>
+  <a class="footer-about" href="/about">About &amp; supporters</a>
 </footer>
 
 </body>

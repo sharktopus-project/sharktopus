@@ -26,7 +26,7 @@ def build_app():
 
     app = FastAPI(
         title="sharktopus",
-        description="Local web UI for the sharktopus GFS cropper.",
+        description="Local web UI for the sharktopus GRIB cropper.",
         version=_read_version(),
         docs_url=None,  # we serve our own /help page
         redoc_url=None,

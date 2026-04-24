@@ -350,3 +350,14 @@ def settings(request: Request) -> HTMLResponse:
 @router.get("/help", response_class=HTMLResponse)
 def help_page(request: Request) -> HTMLResponse:
     return _render(request, "help.html", {})
+
+
+# --------------------------------------------------------------------- about
+
+@router.get("/about", response_class=HTMLResponse)
+def about(request: Request) -> HTMLResponse:
+    from ..templating import institutions as _institutions
+    return _render(request, "about.html", {
+        "institutions": list(_institutions()),
+        "contributors": [],
+    })

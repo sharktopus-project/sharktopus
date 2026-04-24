@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>sharktopus | Cloud-native GFS cropper</title>
+    <title>sharktopus | Cloud-native GRIB cropper</title>
     <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
-    <meta property="og:title" content="sharktopus — Cloud-native GFS cropper">
-    <meta property="og:description" content="Crop GFS GRIB2 in the cloud before you download — by bounding box, variables, and levels. ~12 GB → ~200 MB, ~20 min → ~30 s.">
+    <meta property="og:title" content="sharktopus — Cloud-native GRIB cropper">
+    <meta property="og:description" content="Crop GRIB2 in the cloud before you download — by bounding box, variables, and levels. GFS today; HRRR, NAM, ECMWF open-data in the pipeline. ~12 GB → ~200 MB, ~20 min → ~30 s.">
     <meta property="og:image" content="assets/og.png">
     <meta property="og:type" content="website">
     <style>
@@ -50,17 +50,28 @@
 <header>
     <img class="logo" src="assets/logo@2x.png" alt="sharktopus logo — shark with octopus tentacles and weather icons">
     <h1>sharktopus</h1>
-    <p class="tagline">Cloud-native GFS cropper — crop GRIB2 before you download</p>
+    <p class="tagline">Cloud-native GRIB cropper — crop before you download</p>
+    <p class="tagline" style="font-size: 0.92rem; opacity: 0.8;">
+        <strong>GFS today</strong> · HRRR, NAM, ECMWF open-data coming as the community grows
+    </p>
 </header>
 
 <div class="container">
     <h2>What is sharktopus?</h2>
     <p>
-        <strong>sharktopus</strong> is an open-source Python library that fetches Global Forecast System (GFS)
-        data and crops GRIB2 files <em>in the cloud</em> — by bounding box, variables, and vertical levels —
-        before they hit your disk. It deploys a small serverless <code>wgrib2</code> worker to AWS Lambda,
-        Google Cloud Run, or Azure Functions; each user runs on their own cloud account and pays their own
-        (typically near-zero) bill.
+        <strong>sharktopus</strong> is an open-source Python library that crops GRIB2 weather data
+        <em>in the cloud</em> — by bounding box, variables, and vertical levels — before it hits
+        your disk. It deploys a small serverless <code>wgrib2</code> worker to AWS Lambda, Google
+        Cloud Run, or Azure Container Apps; each user runs on their own cloud account and pays
+        their own (typically near-zero) bill.
+    </p>
+    <p>
+        Today it ships with the NOAA Global Forecast System (<strong>GFS 0.25°</strong>) end-to-end.
+        The internals are deliberately product-agnostic — batch orchestration, byte-range streaming,
+        cropping, inventory, quotas — so adding a new product (HRRR, NAM, RAP, ECMWF open-data)
+        is a matter of plugging in a URL resolver and a catalog, not rewriting the core. See
+        <a href="https://github.com/sharktopus-project/sharktopus/blob/main/docs/ADDING_A_PRODUCT.md">
+        docs/ADDING_A_PRODUCT.md</a>.
     </p>
     <p>
         sharktopus is consumer-agnostic: the output is a valid cropped GRIB2 file. Typical use cases:
@@ -68,7 +79,7 @@
     <ul>
         <li>Regional atmospheric models — WRF, MPAS-regional (ICs/BCs via WPS or equivalent).</li>
         <li>Oceanographic and coupled models — ROMS, HYCOM, FVCOM, SWAN/WW3, ADCIRC atmospheric forcing.</li>
-        <li>ML / nowcasting pipelines — GFS as features for precipitation, fire, or air-quality models.</li>
+        <li>ML / nowcasting pipelines — GRIB features for precipitation, fire, or air-quality models.</li>
         <li>Analysis and teaching — time series over a small region across many cycles, without 12 GB per cycle.</li>
     </ul>
     <p>

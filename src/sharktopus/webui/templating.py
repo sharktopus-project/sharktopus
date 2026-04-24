@@ -35,7 +35,6 @@ def get_templates():
     env = templates.env
     env.globals["site_name"] = "sharktopus"
     env.globals["nav_items"] = _NAV
-    env.globals["footer_institutions"] = _INSTITUTIONS
     env.globals["asset_version"] = _asset_version
     env.filters["human_bytes"] = _human_bytes
     env.filters["short_num"] = _short_num
@@ -53,6 +52,7 @@ _NAV = (
     {"path": "/credentials", "label": "Credentials", "icon": "key"},
     {"path": "/settings",    "label": "Settings",    "icon": "settings"},
     {"path": "/help",        "label": "Help",        "icon": "book"},
+    {"path": "/about",       "label": "About",       "icon": "info"},
 )
 
 
@@ -74,6 +74,15 @@ _INSTITUTIONS = (
      "href": "https://www.ufpr.br/",
      "alt":  "Universidade Federal do Paraná"},
 )
+
+
+def institutions():
+    """Supporting institutions — exposed to the About page only, not globally.
+
+    Kept out of the default template context so every page doesn't lean
+    on the institutional branding; the About page opts in explicitly.
+    """
+    return _INSTITUTIONS
 
 
 def _human_bytes(n) -> str:

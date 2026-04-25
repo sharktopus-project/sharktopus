@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sharktopus"
-version = "0.1.3"
+version = "0.1.4"
 description = "Cloud-native GRIB cropper — crop before you download. GFS today; HRRR, NAM, ECMWF open-data as the community grows."
 readme = "README.md"
 requires-python = ">=3.10"

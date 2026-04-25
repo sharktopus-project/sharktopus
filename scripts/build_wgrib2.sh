@@ -53,23 +53,19 @@ fi
 tar -xzf wgrib2.tgz
 cd grib2
 
-echo ">>> disabling optional features (AEC, OpenJPEG, NetCDF)"
-sed -i.bak "s/^USE_AEC=1/USE_AEC=0/"           makefile
-sed -i.bak "s/^USE_OPENJPEG=1/USE_OPENJPEG=0/" makefile
-sed -i.bak "s/^USE_NETCDF3=1/USE_NETCDF3=0/"   makefile
-sed -i.bak "s/^USE_NETCDF4=1/USE_NETCDF4=0/"   makefile
-
-# wgrib2 bundles proj-4.8.0, whose config.guess is from 2007 and fails
-# on modern CPU targets ("cannot guess build type"). Observed on
-# aarch64 Linux. Force-feed --build=<triplet> to proj's configure so
-# its config.guess is never consulted.
-host_arch="$(uname -m)"
-case "$(uname -s)" in
-    Linux)  build_triplet="${host_arch}-unknown-linux-gnu" ;;
-    Darwin) build_triplet="${host_arch}-apple-darwin" ;;
-    *)      build_triplet="${host_arch}-unknown-unknown" ;;
-esac
-sed -i.bak "s|\./configure --disable-shared|./configure --build=${build_triplet} --disable-shared|g" makefile
+echo ">>> disabling optional features sharktopus doesn't use"
+# AEC / OpenJPEG / NetCDF: format codecs we don't decode.
+# PROJ4 / IPOLATES / SPECTRAL: reprojection libs — sharktopus only
+# crops bbox via wgrib2's native -small_grib, no reprojection.
+# Disabling PROJ4 also dodges proj-4.8.0's 2007-era config.{sub,guess}
+# which can't recognise modern triplets (aarch64 Linux, arm64 macOS).
+sed -i.bak "s/^USE_AEC=1/USE_AEC=0/"             makefile
+sed -i.bak "s/^USE_OPENJPEG=1/USE_OPENJPEG=0/"   makefile
+sed -i.bak "s/^USE_NETCDF3=1/USE_NETCDF3=0/"     makefile
+sed -i.bak "s/^USE_NETCDF4=1/USE_NETCDF4=0/"     makefile
+sed -i.bak "s/^USE_PROJ4=1/USE_PROJ4=0/"         makefile
+sed -i.bak "s/^USE_IPOLATES=[12]/USE_IPOLATES=0/" makefile
+sed -i.bak "s/^USE_SPECTRAL=1/USE_SPECTRAL=0/"   makefile
 
 echo ">>> compiling"
 # CC / FC can be overridden by the caller — on macOS we need to force

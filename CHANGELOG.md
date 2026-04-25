@@ -4,6 +4,19 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-04-25
+
+### Fixed
+- **macOS arm64 + x86_64 wheel builds** (2026-04-25). The 0.1.3 fix made
+  the gfortran preflight succeed, but compilation still failed in
+  proj-4.8.0's `configure` because its bundled `config.sub` (2007) does
+  not recognise `arm64`. Sharktopus does not actually need `proj` —
+  bbox cropping is done with wgrib2's native `-small_grib`, no
+  reprojection. Disabled `USE_PROJ4`, `USE_IPOLATES`, and
+  `USE_SPECTRAL` in the wgrib2 makefile so the proj/ipolates/spectral
+  bundles are never extracted or compiled. Also dropped the brittle
+  `--build=<triplet>` workaround from 0.1.2; it's no longer needed.
+
 ## [0.1.3] — 2026-04-24
 
 ### Fixed

@@ -72,6 +72,13 @@ echo ">>> compiling"
 # the Homebrew gcc (gcc-15 etc.) instead of Apple's Clang-as-gcc.
 : "${CC:=gcc}"
 : "${FC:=gfortran}"
+# gcc-15 defaulted to -std=gnu23, which rejects K&R-style empty
+# parameter lists; wgrib2's gctpc/gctp.c uses those (`int (*inv_trans[])()`
+# called with 4 args) and won't compile. Force -std=gnu17 to keep the
+# legacy semantics — harmless on older gcc, no runtime effect.
+case "$CC" in
+    *gcc*) CC="$CC -std=gnu17" ;;
+esac
 export CC FC
 jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 # wgrib2's makefile has a race in ip2lib_d: gdswzd_mod.mod is sometimes

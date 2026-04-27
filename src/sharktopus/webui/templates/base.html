@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ lang|default('en') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -18,16 +18,23 @@
     <img class="brand-mark" src="/static/img/mark-sm.png"
          alt="sharktopus shark-with-tentacles mark">
     <span class="brand-name">sharktopus</span>
-    <span class="brand-tag">cloud-native GRIB cropper</span>
-    <span class="brand-slogan">GFS today &middot; HRRR tomorrow &middot; who knows next?</span>
+    <span class="brand-tag">{{ t('cloud-native GRIB cropper') }}</span>
+    <span class="brand-slogan">{{ t('GFS today \u00b7 HRRR tomorrow \u00b7 who knows next?') }}</span>
   </a>
   <nav class="topnav" aria-label="primary">
     {% for item in nav_items %}
     <a href="{{ item.path }}"
        class="navlink {% if item.path == active_path or (item.path != '/' and active_path.startswith(item.path)) %}is-active{% endif %}">
-      <span class="navlink-label">{{ item.label }}</span>
+      <span class="navlink-label">{{ t(item.label) }}</span>
     </a>
     {% endfor %}
+    <span class="navlink lang-switch" role="group" aria-label="{{ t('Language') }}">
+      {% for code, name in (langs or {'en': 'English'}).items() %}
+      <a href="/lang/{{ code }}"
+         class="lang-pill {% if code == lang %}is-active{% endif %}"
+         title="{{ name }}">{{ code|upper }}</a>
+      {% endfor %}
+    </span>
   </nav>
 </header>
 
@@ -37,10 +44,10 @@
 
 <footer class="footer">
   <span class="footer-credits">
-    <strong>sharktopus</strong> &middot; independent project &middot;
-    MIT-licensed &middot; not a product of any listed institution.
+    <strong>sharktopus</strong> &middot; {{ t('independent project') }} &middot;
+    {{ t('MIT-licensed') }} &middot; {{ t('not a product of any listed institution.') }}
   </span>
-  <a class="footer-about" href="/about">About &amp; supporters</a>
+  <a class="footer-about" href="/about">{{ t('About & supporters') }}</a>
 </footer>
 
 </body>

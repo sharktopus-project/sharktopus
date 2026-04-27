@@ -14,6 +14,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import db as webdb
+from .. import i18n
 from ..models import JobRow, parse_submit_form
 from ..runner import get_runner
 
@@ -25,9 +26,27 @@ def _templates(request: Request):
 
 
 def _render(request: Request, name: str, ctx: dict[str, Any]) -> HTMLResponse:
+    lang = i18n.current_lang(request)
     return _templates(request).TemplateResponse(
-        request, name, {"active_path": request.url.path, **ctx}
+        request, name, {
+            "active_path": request.url.path,
+            "lang": lang,
+            "langs": i18n.LANGS,
+            "t": i18n.make_t(lang),
+            **ctx,
+        }
     )
+
+
+@router.get("/lang/{code}")
+def set_lang(code: str, request: Request) -> RedirectResponse:
+    """Set the ``lang`` cookie and redirect back to the referer (or ``/``)."""
+    if code not in i18n.LANGS:
+        code = i18n.DEFAULT
+    target = request.headers.get("referer") or "/"
+    resp = RedirectResponse(target, status_code=303)
+    resp.set_cookie("lang", code, max_age=60 * 60 * 24 * 365, samesite="lax")
+    return resp
 
 
 # --------------------------------------------------------------------- dashboard

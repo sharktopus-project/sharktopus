@@ -4,16 +4,14 @@
 
 <section class="hero">
   <div class="hero-text">
-    <h1>Bem-vindo ao sharktopus</h1>
+    <h1>{{ t('Welcome to sharktopus') }}</h1>
     <p class="hero-lede">
-      Recorte os GFS do NOAA perto da origem, baixe só o que importa,
-      e mantenha o orçamento de nuvem sob controle. Tudo o que a CLI
-      faz, você faz aqui também.
+      {{ t('Crop NOAA GFS near the source, download only what matters, and keep cloud spend in check. Anything the CLI does, you can do here.') }}
     </p>
     <div class="hero-actions">
-      <a class="btn btn-primary" href="/submit">New download</a>
-      <a class="btn btn-ghost"   href="/inventory">Browse inventory</a>
-      <a class="btn btn-ghost"   href="/quota">Cloud quota</a>
+      <a class="btn btn-primary" href="/submit">{{ t('New download') }}</a>
+      <a class="btn btn-ghost"   href="/inventory">{{ t('Browse inventory') }}</a>
+      <a class="btn btn-ghost"   href="/quota">{{ t('Cloud quota') }}</a>
     </div>
   </div>
   <img class="hero-mark" src="/static/img/mark.png"
@@ -22,40 +20,40 @@
 
 <section class="cards">
   <div class="card">
-    <h3>Jobs</h3>
+    <h3>{{ t('Jobs') }}</h3>
     <p class="stat-row">
-      <span class="stat"><em>{{ totals.n or 0 }}</em><small>total</small></span>
-      <span class="stat"><em>{{ totals.running or 0 }}</em><small>running</small></span>
-      <span class="stat"><em>{{ totals.queued or 0 }}</em><small>queued</small></span>
-      <span class="stat ok"><em>{{ totals.ok or 0 }}</em><small>ok</small></span>
-      <span class="stat fail"><em>{{ totals.failed or 0 }}</em><small>failed</small></span>
+      <span class="stat"><em>{{ totals.n or 0 }}</em><small>{{ t('total') }}</small></span>
+      <span class="stat"><em>{{ totals.running or 0 }}</em><small>{{ t('running') }}</small></span>
+      <span class="stat"><em>{{ totals.queued or 0 }}</em><small>{{ t('queued') }}</small></span>
+      <span class="stat ok"><em>{{ totals.ok or 0 }}</em><small>{{ t('ok') }}</small></span>
+      <span class="stat fail"><em>{{ totals.failed or 0 }}</em><small>{{ t('failed') }}</small></span>
     </p>
-    <p><a href="/jobs">See all jobs →</a></p>
+    <p><a href="/jobs">{{ t('See all jobs \u2192') }}</a></p>
   </div>
   <div class="card">
-    <h3>Inventory</h3>
+    <h3>{{ t('Inventory') }}</h3>
     <p class="stat-row">
-      <span class="stat"><em>{{ inventory.n | short_num }}</em><small>files</small></span>
-      <span class="stat"><em>{{ inventory.bytes | human_bytes }}</em><small>on disk</small></span>
+      <span class="stat"><em>{{ inventory.n | short_num }}</em><small>{{ t('files') }}</small></span>
+      <span class="stat"><em>{{ inventory.bytes | human_bytes }}</em><small>{{ t('on disk') }}</small></span>
     </p>
-    <p><a href="/inventory">Browse files →</a></p>
+    <p><a href="/inventory">{{ t('Browse files \u2192') }}</a></p>
   </div>
   <div class="card">
-    <h3>Clouds</h3>
-    <p>aws · gcloud · azure — track free-tier usage and provision new projects.</p>
-    <p><a href="/quota">Quota dashboard →</a></p>
+    <h3>{{ t('Clouds') }}</h3>
+    <p>{{ t('aws \u00b7 gcloud \u00b7 azure \u2014 track free-tier usage and provision new projects.') }}</p>
+    <p><a href="/quota">{{ t('Quota dashboard \u2192') }}</a></p>
   </div>
 </section>
 
 <section class="section">
   <div class="section-head">
-    <h2>Recent jobs</h2>
-    <a class="btn btn-ghost btn-sm" href="/jobs">All jobs →</a>
+    <h2>{{ t('Recent jobs') }}</h2>
+    <a class="btn btn-ghost btn-sm" href="/jobs">{{ t('All jobs \u2192') }}</a>
   </div>
   {% if recent %}
   <table class="table">
     <thead>
-      <tr><th>#</th><th>Name</th><th>Status</th><th>Progress</th><th>Duration</th><th>Created</th></tr>
+      <tr><th>#</th><th>{{ t('Name') }}</th><th>{{ t('Status') }}</th><th>{{ t('Progress') }}</th><th>{{ t('Duration') }}</th><th>{{ t('Created') }}</th></tr>
     </thead>
     <tbody>
       {% for j in recent %}
@@ -76,7 +74,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="empty">No jobs yet. <a href="/submit">Start one →</a></p>
+  <p class="empty">{{ t('No jobs yet.') }} <a href="/submit">{{ t('Start one \u2192') }}</a></p>
   {% endif %}
 </section>
 

@@ -4,6 +4,18 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+### Added
+- **WebUI language toggle** (EN/PT). English is the new default; Portuguese
+  is one click away via the EN/PT pills in the header. Cookie-based, so
+  the choice sticks per browser. Header, nav, footer, and the dashboard
+  are translated; other pages fall back gracefully to English when no
+  translation is registered (incremental translation as needed).
+
+### Changed
+- **Dashboard hero in English by default.** The previous hero copy was
+  Portuguese; both languages are now driven by the same translation
+  table.
+
 ## [0.1.4] — 2026-04-25
 
 ### Fixed

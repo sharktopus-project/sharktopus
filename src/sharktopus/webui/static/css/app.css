@@ -123,6 +123,31 @@ body {
   font-weight: 600;
 }
 
+/* language switcher — two tiny pills (EN | PT) tucked at the end of the nav */
+.lang-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-left: 6px;
+  background: rgba(255,255,255,.08);
+  border-radius: var(--radius-sm);
+}
+.lang-pill {
+  color: rgba(255,255,255,.7);
+  text-decoration: none;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  border-radius: 4px;
+  transition: background .15s ease, color .15s ease;
+}
+.lang-pill:hover { color: #fff; }
+.lang-pill.is-active {
+  background: rgba(255,255,255,.22);
+  color: #fff;
+}
+
 /* ------------------------------------------------------------ hero */
 
 .hero {

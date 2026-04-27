@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-04-27
+
 ### Added
 - **WebUI language toggle** (EN/PT). English is the new default; Portuguese
   is one click away via the EN/PT pills in the header. Cookie-based, so
@@ -15,6 +17,10 @@ All notable changes to this project will be documented here.
 - **Dashboard hero in English by default.** The previous hero copy was
   Portuguese; both languages are now driven by the same translation
   table.
+
+### Fixed
+- **`__version__` was stuck at 0.1.0.** The package now reports the
+  pyproject version correctly.
 
 ## [0.1.4] — 2026-04-25
 

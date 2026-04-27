@@ -18,7 +18,7 @@ Layered architecture (each subpackage has its own ``__init__`` doc):
 * :mod:`sharktopus.cli` — ``sharktopus`` command-line entry point.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.5"
 
 from . import batch, cloud, io, sources, wrf
 from .batch import available_sources, fetch_batch, generate_timestamps

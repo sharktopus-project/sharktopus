@@ -26,3 +26,19 @@ client_secret_*.apps.googleusercontent.com.json
 *token*
 pypi-*.txt
 .pypirc
+
+# Cloud credential exports — never commit. AWS console gives these as CSV
+# downloads when an IAM user is created; treat them like raw secrets.
+*_accessKeys.csv
+*_credentials.csv
+credentials.csv
+accessKeys.csv
+*.pem
+*.key
+
+# Internal design / brainstorm / communication notes — keep out of public repo.
+BRAINSTORM*.md
+COMMUNICATION*.md
+NEXT_STEP.sh
+diagnotico_mac/
+videos/

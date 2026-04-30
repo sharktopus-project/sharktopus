@@ -4,6 +4,26 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.7rc1] — 2026-04-30
+
+Release candidate published to TestPyPI for end-to-end install validation
+before the 0.1.7 PyPI cut. The 0.1.6 tag was abandoned: its wheel build
+failed on every platform because `pyproject.toml` force-included
+`deploy/gcloud/oauth_client.json`, which is gitignored as a per-deployer
+secret and isn't present in CI checkouts.
+
+### Fixed
+- **Wheel build no longer references a gitignored secret.** Removed
+  `deploy/gcloud/oauth_client.json` from the wheel force-include list.
+  Users who run `sharktopus --setup gcloud` continue to supply their own
+  OAuth client via `--oauth-client-json`, as before.
+
+### Added
+- **`publish-testpypi` workflow job.** Tags matching `v*rc*` now upload
+  the built wheels to TestPyPI automatically, gated by the
+  `TEST_PYPI_TOKEN` repo secret. Iterating release candidates no longer
+  burns production PyPI version slots.
+
 ## [0.1.6] — 2026-04-30
 
 This release closes the install-and-deploy gaps that uchoa@snowshark

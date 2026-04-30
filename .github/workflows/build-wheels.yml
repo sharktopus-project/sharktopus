@@ -2,9 +2,10 @@ name: Build wheels
 
 # Builds platform-specific sharktopus wheels with wgrib2 bundled inside.
 # Triggered on version tags (v*) and manually. Wheels are uploaded as
-# workflow artifacts — this workflow deliberately does NOT publish to
-# PyPI. Publishing is a follow-up, manual step once we've inspected the
-# artifacts.
+# workflow artifacts. Production PyPI publish is still a follow-up,
+# manual step. Release-candidate tags (v*rc*) are auto-published to
+# TestPyPI so test users can `pip install --pre sharktopus` against the
+# staging index without burning a production version slot.
 
 on:
   push:
@@ -189,3 +190,29 @@ jobs:
           name: sharktopus-macos-x86_64
           path: dist/*.whl
           if-no-files-found: error
+
+  publish-testpypi:
+    # Auto-publish release candidates (v*rc*) to TestPyPI so end-to-end
+    # install validation (pip install --pre sharktopus from
+    # test.pypi.org) doesn't require a manual twine upload. The
+    # production index is untouched — that publish stays manual.
+    name: Publish to TestPyPI
+    needs: [linux-x86_64, linux-aarch64, macos-arm64, macos-x86_64]
+    if: contains(github.ref, 'rc')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List downloaded wheels
+        run: ls -l dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TEST_PYPI_TOKEN }}
+          skip-existing: true

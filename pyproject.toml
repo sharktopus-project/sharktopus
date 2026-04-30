@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sharktopus"
-version = "0.1.6"
+version = "0.1.7rc1"
 description = "Cloud-native GRIB cropper — crop before you download. GFS today; HRRR, NAM, ECMWF open-data as the community grows."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -91,7 +91,6 @@ artifacts = [
 "deploy/gcloud/main.py" = "sharktopus/_deploy/gcloud/main.py"
 "deploy/gcloud/_sdk_ops.py" = "sharktopus/_deploy/gcloud/_sdk_ops.py"
 "deploy/gcloud/_oauth_browser.py" = "sharktopus/_deploy/gcloud/_oauth_browser.py"
-"deploy/gcloud/oauth_client.json" = "sharktopus/_deploy/gcloud/oauth_client.json"
 "deploy/gcloud/Dockerfile" = "sharktopus/_deploy/gcloud/Dockerfile"
 "deploy/gcloud/requirements.txt" = "sharktopus/_deploy/gcloud/requirements.txt"
 "deploy/azure/provision.py" = "sharktopus/_deploy/azure/provision.py"

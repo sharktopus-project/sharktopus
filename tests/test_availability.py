@@ -54,14 +54,34 @@ def test_per_source_supports(source, date, expected):
 # available_sources(date) filters DEFAULT_PRIORITY
 # ---------------------------------------------------------------------------
 
-def test_available_sources_recent_date_returns_all_cloud_mirrors():
-    """Recent date (within NOMADS window) → full default priority."""
+@pytest.fixture
+def _no_cloud_crop_creds(monkeypatch):
+    """Force every ``*_crop`` source to report no credentials.
+
+    Without this fixture the test result depends on whatever cloud SDKs
+    happen to be authenticated on the developer's box — CI passes but a
+    machine with `gcloud auth application-default login` already done
+    sees ``gcloud_crop`` slip into the priority list. This pins the
+    "plain CI" baseline so the canonical-order asserts below stay
+    deterministic.
+    """
+    for mod in ("aws_crop", "gcloud_crop", "azure_crop"):
+        monkeypatch.setattr(
+            f"sharktopus.sources.{mod}.have_credentials", lambda: False,
+        )
+    # gcloud/azure crop also accept a service URL via env — clear those.
+    for var in ("SHARKTOPUS_GCLOUD_CROP_URL", "SHARKTOPUS_AZURE_CROP_URL"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_available_sources_recent_date_returns_all_cloud_mirrors(_no_cloud_crop_creds):
+    """Recent date (within NOMADS window) → full default priority (no *_crop)."""
     avail = batch.available_sources("20260417", now=NOW)
     # Order matters (preserves DEFAULT_PRIORITY order)
     assert avail == ["gcloud", "aws", "azure", "rda", "nomads"]
 
 
-def test_available_sources_drops_nomads_outside_retention():
+def test_available_sources_drops_nomads_outside_retention(_no_cloud_crop_creds):
     """Date beyond NOMADS retention drops nomads; cloud mirrors stay."""
     avail = batch.available_sources("20260101", now=NOW)  # ~108 days back
     assert "nomads" not in avail
@@ -133,8 +153,16 @@ def test_available_sources_respects_explicit_candidates():
 # fetch_batch(priority=None) auto-derivation
 # ---------------------------------------------------------------------------
 
-def test_fetch_batch_auto_priority_uses_available_sources(monkeypatch, tmp_path):
-    """priority=None → derive from available_sources(first timestamp)."""
+def test_fetch_batch_auto_priority_uses_available_sources(
+    monkeypatch, tmp_path, _no_cloud_crop_creds,
+):
+    """priority=None → derive from available_sources(first timestamp).
+
+    The ``_no_cloud_crop_creds`` fixture pins the priority to the plain
+    mirrors only — otherwise a developer with `gcloud auth
+    application-default login` already done sees ``gcloud_crop`` win the
+    race and the ``fake_gcloud`` mock never fires.
+    """
     calls: list[str] = []
 
     def fake_gcloud(date, cycle, fxx, **kw):

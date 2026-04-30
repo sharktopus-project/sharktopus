@@ -27,6 +27,29 @@ free-tier distributed cropping.
 
 ## Install
 
+### Prerequisites
+
+* **Python ≥ 3.10** (3.10, 3.11, 3.12 supported).
+* On a fresh Debian / Ubuntu host, install Python and the venv module
+  first — minimal images and Ubuntu 24.04 don't ship them by default:
+
+  ```bash
+  sudo apt update
+  sudo apt install -y python3 python3-venv python3-pip
+  ```
+
+* On Debian 12+ / Ubuntu 23.04+, the system Python is **externally
+  managed** (PEP 668) — `pip install` outside a venv will refuse with
+  `error: externally-managed-environment`. Always install sharktopus
+  inside a virtualenv:
+
+  ```bash
+  python3 -m venv ~/sharktopus-venv
+  source ~/sharktopus-venv/bin/activate
+  ```
+
+### Install the package
+
 ```bash
 # Platform wheel (Linux x86_64 today; more platforms coming) — wgrib2
 # is bundled inside the wheel, no system install needed:
@@ -39,6 +62,18 @@ pip install sharktopus --no-binary sharktopus
 #   apt install wgrib2
 #   export SHARKTOPUS_WGRIB2=/path/to/wgrib2
 ```
+
+### Optional extras
+
+* `sharktopus[ui]` — local web UI (FastAPI + Uvicorn + Jinja2,
+  ~23 packages). Install when you want `sharktopus --ui`.
+* `sharktopus[aws]` — AWS deploy dependencies (`boto3`). Install
+  before running `sharktopus --setup aws`.
+* `sharktopus[gcloud]` — GCloud deploy dependencies. Install before
+  `sharktopus --setup gcloud`.
+* `sharktopus[azure]` — Azure deploy dependencies. Install before
+  `sharktopus --setup azure`.
+* `sharktopus[all]` — everything (UI + every cloud's deploy deps).
 
 > **Runtime libs (minimal Linux hosts).** The bundled `wgrib2` binary
 > dynamically links `libgfortran5` and `libgomp1` (OpenMP). Most

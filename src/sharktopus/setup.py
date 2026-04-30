@@ -85,21 +85,82 @@ def _run(cmd: list[str], *, env: dict[str, str] | None = None) -> int:
 
 
 def _find_provision_script(cloud: str) -> Path:
-    """Locate ``deploy/<cloud>/provision.py`` relative to this file.
+    """Locate ``deploy/<cloud>/provision.py`` for the given cloud.
 
-    Works in a source checkout; raises a clear error if the script is
-    missing (e.g., when running from a wheel that didn't bundle the
-    deploy scripts — future problem).
+    Search order:
+      1. ``<repo>/deploy/<cloud>/provision.py`` (source checkout — wins)
+      2. ``sharktopus/_deploy/<cloud>/provision.py`` (bundled in wheel)
+
+    Wheels built since 0.1.6 force-include the ``deploy/`` tree under
+    ``sharktopus/_deploy/`` so a plain ``pip install sharktopus`` is
+    enough to run ``--setup``. Older wheels (0.1.0 – 0.1.5) shipped
+    without it, hence the source-checkout fallback message.
     """
     here = Path(__file__).resolve().parent
-    for ancestor in (here.parent.parent, here.parent, here):
-        candidate = ancestor / "deploy" / cloud / "provision.py"
+    candidates = [
+        here.parent.parent / "deploy" / cloud / "provision.py",  # repo
+        here.parent / "deploy" / cloud / "provision.py",
+        here / "_deploy" / cloud / "provision.py",  # wheel
+    ]
+    for candidate in candidates:
         if candidate.exists():
             return candidate
     raise SystemExit(
-        f"setup: cannot find deploy/{cloud}/provision.py — run from a "
-        "source checkout, or install with deploy scripts bundled."
+        f"setup: cannot find deploy/{cloud}/provision.py.\n"
+        f"       Your installed sharktopus wheel was built without the\n"
+        f"       deploy scripts. Either upgrade with `pip install -U\n"
+        f"       sharktopus` (≥ 0.1.6 ships them) or install from source:\n"
+        f"           git clone https://github.com/sharktopus-project/sharktopus\n"
+        f"           cd sharktopus && pip install -e ."
     )
+
+
+# Each cloud's provision.py imports a SDK that isn't a sharktopus runtime
+# dep — declared as the matching pip extra in pyproject.toml. We probe
+# the imports up-front so the user doesn't authenticate over SSO and
+# only then discover they're missing a library.
+_PROVISION_DEPS = {
+    "aws": [("boto3", "sharktopus[aws]")],
+    "gcloud": [
+        ("google.auth", "sharktopus[gcloud]"),
+        ("google.cloud.storage", "sharktopus[gcloud]"),
+    ],
+    "azure": [
+        ("azure.identity", "sharktopus[azure]"),
+        ("azure.mgmt.resource", "sharktopus[azure]"),
+    ],
+}
+
+
+def _preflight_provision_deps(cloud: str) -> None:
+    """Fail fast if a deploy SDK is missing.
+
+    Without this check the user picks an auth method, opens their
+    browser, completes SSO — and then hits ``ModuleNotFoundError`` from
+    ``provision.py``. Better to refuse before the first prompt.
+    """
+    import importlib
+
+    missing: list[tuple[str, str]] = []
+    for module, extra in _PROVISION_DEPS.get(cloud, []):
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            missing.append((module, extra))
+    if not missing:
+        return
+
+    extras = sorted({extra for _, extra in missing})
+    mods = ", ".join(m for m, _ in missing)
+    print(
+        f"setup: missing deploy dependency for {cloud}: {mods}",
+        file=sys.stderr,
+    )
+    print(
+        f"       install with: pip install '{extras[0]}'",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +209,8 @@ def _install_gcloud() -> str:
 
 def _setup_gcloud() -> int:
     print("== sharktopus setup gcloud ==")
+    _find_provision_script("gcloud")  # pre-flight: refuse early if missing
+    _preflight_provision_deps("gcloud")
 
     # --- [1/4] Pick auth path.
     # Three dimensions: install/use gcloud CLI, or go pure-Python via SDK
@@ -356,6 +419,8 @@ def _install_aws() -> str:
 
 def _setup_aws() -> int:
     print("== sharktopus setup aws ==")
+    _find_provision_script("aws")  # pre-flight: refuse early if missing
+    _preflight_provision_deps("aws")
 
     # --- [1/3] Pick auth path.
     # Two dimensions: install/use aws CLI, or go pure-Python.
@@ -501,6 +566,8 @@ def _install_az() -> str:
 
 def _setup_azure() -> int:
     print("== sharktopus setup azure ==")
+    _find_provision_script("azure")  # pre-flight: refuse early if missing
+    _preflight_provision_deps("azure")
 
     # --- [1/3] Pick auth path.
     # Two dimensions: (a) install/use az CLI, or (b) go pure-Python.

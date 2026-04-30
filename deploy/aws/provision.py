@@ -212,6 +212,28 @@ def main() -> int:
         help="Skip pull-through cache warm-up (use image already cached in ECR)",
     )
     parser.add_argument(
+        "--credential-arn",
+        default=os.environ.get("SHARKTOPUS_GHCR_CREDENTIAL_ARN"),
+        help=(
+            "ARN of a Secrets Manager secret holding GHCR pull credentials "
+            "(JSON: {\"username\":\"...\",\"accessToken\":\"<github-pat>\"}). "
+            "Required by AWS for ECR pull-through cache rules pointing at "
+            "ghcr.io — even for public repos. Use --create-credential to "
+            "have provision.py create one for you, or pre-create it in the "
+            "AWS console."
+        ),
+    )
+    parser.add_argument(
+        "--create-credential",
+        action="store_true",
+        help=(
+            "When set, prompt for a GitHub username + classic PAT (read:packages "
+            "scope) and create the Secrets Manager secret automatically before "
+            "creating the pull-through cache rule. The PAT is never written to "
+            "disk by sharktopus — it goes straight to Secrets Manager."
+        ),
+    )
+    parser.add_argument(
         "--hot-start",
         type=int,
         default=0,
@@ -261,6 +283,8 @@ def main() -> int:
     image_uri = ensure_ecr_image_via_ptc(
         session, args.region, account,
         image_tag=args.image_tag, skip_warm=args.skip_image,
+        credential_arn=args.credential_arn,
+        create_credential=args.create_credential,
     )
     role_arn = ensure_iam_role(session, bucket)
     ensure_s3_bucket(session, args.region, bucket)
@@ -287,6 +311,8 @@ def main() -> int:
 def ensure_ecr_image_via_ptc(
     session, region: str, account: str, *,
     image_tag: str = IMAGE_TAG, skip_warm: bool = False,
+    credential_arn: str | None = None,
+    create_credential: bool = False,
 ) -> str:
     """Ensure the public GHCR image is mirrored into the user's ECR.
 
@@ -298,17 +324,32 @@ def ensure_ecr_image_via_ptc(
     When *skip_warm* is set, assumes the image is already cached and
     returns the URI without the HTTP round-trip — useful for fast
     re-runs that only tweak Lambda config.
+
+    AWS requires a Secrets Manager ARN with GitHub credentials for
+    every ghcr.io pull-through cache rule, even for public images
+    (``UnsupportedUpstreamRegistryException`` otherwise). Pass
+    *credential_arn* to point at an existing secret, or set
+    *create_credential* to True to be walked through creating one.
     """
     ecr = session.client("ecr", region_name=region)
 
     existing = ecr.describe_pull_through_cache_rules().get("pullThroughCacheRules", [])
     if not any(r["ecrRepositoryPrefix"] == PTC_PREFIX for r in existing):
+        if create_credential and not credential_arn:
+            credential_arn = _create_ghcr_credential_secret(session, region)
         log.info("Creating pull-through cache rule %s → ghcr.io", PTC_PREFIX)
-        ecr.create_pull_through_cache_rule(
-            ecrRepositoryPrefix=PTC_PREFIX,
-            upstreamRegistryUrl="ghcr.io",
-            upstreamRegistry="github-container-registry",
-        )
+        kwargs = {
+            "ecrRepositoryPrefix": PTC_PREFIX,
+            "upstreamRegistryUrl": "ghcr.io",
+            "upstreamRegistry": "github-container-registry",
+        }
+        if credential_arn:
+            kwargs["credentialArn"] = credential_arn
+        try:
+            ecr.create_pull_through_cache_rule(**kwargs)
+        except ecr.exceptions.UnsupportedUpstreamRegistryException as e:
+            _explain_ghcr_credential_error(account, region)
+            raise SystemExit(2) from e
     else:
         log.info("Pull-through cache rule %s already present", PTC_PREFIX)
 
@@ -322,6 +363,74 @@ def ensure_ecr_image_via_ptc(
     log.info("Warming pull-through cache: %s (first pull may take ~1 min)", image_uri)
     _warm_ptc_cache(ecr, ptc_repo, image_tag)
     return image_uri
+
+
+def _explain_ghcr_credential_error(account: str, region: str) -> None:
+    """Friendly explanation when ECR rejects an unauthenticated ghcr.io PTC rule."""
+    log.error("=" * 60)
+    log.error("AWS rejected the pull-through cache rule for ghcr.io.")
+    log.error("This happens because ECR requires Secrets Manager")
+    log.error("credentials for every ghcr.io rule — including for")
+    log.error("public images. (Documented limitation:")
+    log.error(" https://docs.aws.amazon.com/AmazonECR/latest/userguide/")
+    log.error(" pull-through-cache.html#pull-through-cache-considerations )")
+    log.error("")
+    log.error("Three ways forward:")
+    log.error("")
+    log.error(" 1. Re-run with --create-credential to be walked through")
+    log.error("    creating a Secrets Manager entry now (you'll need a")
+    log.error("    GitHub classic PAT with read:packages scope).")
+    log.error("")
+    log.error(" 2. Pre-create the secret in the AWS console, then re-run")
+    log.error("    with --credential-arn arn:aws:secretsmanager:...")
+    log.error("")
+    log.error(" 3. Push the sharktopus image to your private ECR by hand")
+    log.error("    (skipping pull-through cache entirely):")
+    log.error("    docker pull ghcr.io/sharktopus-project/sharktopus:latest")
+    log.error("    aws ecr create-repository --repository-name sharktopus")
+    log.error("    docker tag ... && docker push ...")
+    log.error("    Then re-run with --skip-image and override")
+    log.error("    SHARKTOPUS_PTC_PREFIX/SHARKTOPUS_GHCR_REPO accordingly.")
+    log.error("=" * 60)
+
+
+def _create_ghcr_credential_secret(session, region: str) -> str:
+    """Walk the user through creating a Secrets Manager entry for GHCR.
+
+    Prompts for a GitHub username + classic PAT with the ``read:packages``
+    scope. The PAT is never written to disk by sharktopus — it goes
+    straight to Secrets Manager via boto3. Returns the ARN of the new
+    secret. Existing secrets named ``ecr-pullthroughcache/sharktopus-ghcr``
+    are reused so re-runs don't accumulate duplicates.
+    """
+    import getpass
+    import json
+
+    sm = session.client("secretsmanager", region_name=region)
+    name = "ecr-pullthroughcache/sharktopus-ghcr"
+
+    print()
+    print("Create a GitHub classic PAT (Personal Access Token) at")
+    print("    https://github.com/settings/tokens (Tokens classic)")
+    print("with the read:packages scope and paste it below.")
+    print()
+    username = input("GitHub username: ").strip()
+    pat = getpass.getpass("GitHub PAT (read:packages): ").strip()
+    if not username or not pat:
+        raise SystemExit(
+            "setup: both username and PAT are required to create the secret"
+        )
+
+    payload = json.dumps({"username": username, "accessToken": pat})
+    try:
+        resp = sm.create_secret(Name=name, SecretString=payload)
+        arn = resp["ARN"]
+        log.info("Created secret %s", arn)
+    except sm.exceptions.ResourceExistsException:
+        log.info("Secret %s already exists — updating value.", name)
+        sm.put_secret_value(SecretId=name, SecretString=payload)
+        arn = sm.describe_secret(SecretId=name)["ARN"]
+    return arn
 
 
 def _warm_ptc_cache(ecr_client, ptc_repo: str, tag: str) -> None:

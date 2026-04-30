@@ -4,6 +4,47 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-04-30
+
+This release closes the install-and-deploy gaps that uchoa@snowshark
+documented while smoke-testing 0.1.1 on a fresh Debian/Ubuntu host.
+
+### Added
+- **`[aws]`, `[gcloud]`, `[azure]`, `[all]` pip extras.** Each cloud's
+  deploy SDK (boto3 / google-* / azure-*) is now declared as an
+  optional extra — install before running the matching `--setup`.
+  Previously the user authenticated over SSO and only then hit
+  `ModuleNotFoundError: No module named 'boto3'`.
+- **Cloud deploy scripts shipped in the wheel.** `deploy/{aws,gcloud,azure}/`
+  is force-included under `sharktopus/_deploy/` so a plain
+  `pip install sharktopus` is enough to run `--setup` — no source
+  checkout needed.
+- **`provision.py --credential-arn` and `--create-credential` (AWS).**
+  Both options handle AWS's requirement that ECR pull-through cache
+  rules pointing at ghcr.io carry Secrets Manager credentials, even
+  for public images. `--create-credential` walks the user through
+  creating the secret in place; the GitHub PAT goes straight to
+  Secrets Manager and is never written to disk.
+- **README "Prerequisites" section.** Documents Python ≥ 3.10, the
+  Debian/Ubuntu `python3-venv` package, and the PEP 668
+  externally-managed-environment trap. Adds a venv-first install path.
+
+### Changed
+- **`sharktopus --setup` pre-flights its dependencies.** `provision.py`
+  presence and the cloud's SDK import are checked *before* any prompt,
+  so the user can't burn ten minutes on SSO and then be told boto3
+  is missing.
+- **`sharktopus --ui` banner is louder and headless-aware.** When
+  `$SSH_CONNECTION` or no `$DISPLAY` is detected, the URL is wrapped
+  in a `═══` rule and an explicit "no display detected — open
+  manually / forward the port" hint replaces the silent
+  `webbrowser.open` attempt.
+- **`provision.py` ECR pull-through cache failure is now self-explaining.**
+  On `UnsupportedUpstreamRegistryException`, the user sees a numbered
+  three-option recovery (use `--create-credential`, use
+  `--credential-arn`, or push to private ECR by hand) instead of a
+  raw boto3 traceback.
+
 ## [0.1.5] — 2026-04-27
 
 ### Added

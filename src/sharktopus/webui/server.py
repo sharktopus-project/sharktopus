@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import threading
@@ -9,6 +10,24 @@ import time
 import webbrowser
 
 __all__ = ["run"]
+
+
+def _looks_headless() -> bool:
+    """Return True when ``webbrowser.open`` is unlikely to do anything visible.
+
+    On a desktop machine the URL is opened automatically — convenient. On
+    a headless server (no DISPLAY / no $WAYLAND_DISPLAY / SSH session)
+    ``webbrowser.open`` typically fails silently or launches a text-mode
+    browser that never connects. We use this hint to escalate the banner
+    so users in that environment can't miss the URL.
+    """
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"):
+        return True
+    if sys.platform.startswith("linux") and not (
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    ):
+        return True
+    return False
 
 
 def run(
@@ -26,7 +45,7 @@ def run(
     url = f"http://{host}:{port}/"
     _print_banner(host, port, url, fell_back=(port != requested_port))
 
-    if open_browser:
+    if open_browser and not _looks_headless():
         _launch_browser(url)
 
     config = uvicorn.Config(
@@ -73,17 +92,25 @@ def _port_is_free(host: str, port: int) -> bool:
 
 
 def _print_banner(host: str, port: int, url: str, *, fell_back: bool = False) -> None:
-    lines = [
-        "",
-        f"  sharktopus web UI listening at {url}",
-    ]
+    headless = _looks_headless()
+    rule = "═" * 60
+    lines = ["", rule, "  sharktopus web UI", "", f"    {url}", ""]
+    if headless:
+        lines += [
+            "  No display detected (SSH or headless host).",
+            "  Open the URL above in a browser on your local machine.",
+            "  For SSH hosts, forward the port first:",
+            f"      ssh -L {port}:localhost:{port} user@host",
+        ]
+    else:
+        lines.append("  Opening this URL in your browser ...")
     if fell_back:
-        lines.append(
-            "  (default port was busy — picked a free one; "
-            "pass --ui-port N to override)"
-        )
-    lines.append("  Ctrl-C to stop.")
-    lines.append("")
+        lines += [
+            "",
+            "  (default port was busy — picked a free one above;",
+            "   pass --ui-port N to override)",
+        ]
+    lines += ["", "  Ctrl-C to stop.", rule, ""]
     sys.stderr.write("\n".join(lines) + "\n")
 
 

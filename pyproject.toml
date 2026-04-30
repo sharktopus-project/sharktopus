@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sharktopus"
-version = "0.1.5"
+version = "0.1.6"
 description = "Cloud-native GRIB cropper — crop before you download. GFS today; HRRR, NAM, ECMWF open-data as the community grows."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,6 +34,27 @@ ui = [
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
 ]
+# Cloud-deploy extras: pip install 'sharktopus[aws]' before
+# `sharktopus --setup aws`, etc. Without these, --setup walks through
+# the auth wizard and only then crashes on a missing import.
+aws = ["boto3>=1.28"]
+gcloud = [
+    "google-auth>=2.20",
+    "google-auth-oauthlib>=1.0",
+    "google-cloud-run>=0.10",
+    "google-cloud-storage>=2.10",
+    "google-cloud-artifact-registry>=1.10",
+]
+azure = [
+    "azure-identity>=1.15",
+    "azure-mgmt-resource>=23.0",
+    "azure-mgmt-containerinstance>=10.1",
+    "azure-mgmt-storage>=21.0",
+    "azure-storage-blob>=12.19",
+]
+all = [
+    "sharktopus[ui,aws,gcloud,azure]",
+]
 
 [project.scripts]
 sharktopus = "sharktopus.cli:main"
@@ -56,6 +77,27 @@ artifacts = [
     "src/sharktopus/webui/static/**/*",
     "src/sharktopus/webui/data/**/*.json",
 ]
+
+# Bundle the cloud deploy scripts inside the wheel so `sharktopus --setup`
+# works on a plain `pip install` (without a source checkout). They land
+# under sharktopus/_deploy/{aws,gcloud,azure}/ and setup.py knows to
+# look there as a fallback to the repo-root deploy/ checkout.
+[tool.hatch.build.targets.wheel.force-include]
+"deploy/aws/provision.py" = "sharktopus/_deploy/aws/provision.py"
+"deploy/aws/handler.py" = "sharktopus/_deploy/aws/handler.py"
+"deploy/aws/_sso_oidc.py" = "sharktopus/_deploy/aws/_sso_oidc.py"
+"deploy/aws/Dockerfile" = "sharktopus/_deploy/aws/Dockerfile"
+"deploy/gcloud/provision.py" = "sharktopus/_deploy/gcloud/provision.py"
+"deploy/gcloud/main.py" = "sharktopus/_deploy/gcloud/main.py"
+"deploy/gcloud/_sdk_ops.py" = "sharktopus/_deploy/gcloud/_sdk_ops.py"
+"deploy/gcloud/_oauth_browser.py" = "sharktopus/_deploy/gcloud/_oauth_browser.py"
+"deploy/gcloud/oauth_client.json" = "sharktopus/_deploy/gcloud/oauth_client.json"
+"deploy/gcloud/Dockerfile" = "sharktopus/_deploy/gcloud/Dockerfile"
+"deploy/gcloud/requirements.txt" = "sharktopus/_deploy/gcloud/requirements.txt"
+"deploy/azure/provision.py" = "sharktopus/_deploy/azure/provision.py"
+"deploy/azure/main.py" = "sharktopus/_deploy/azure/main.py"
+"deploy/azure/Dockerfile" = "sharktopus/_deploy/azure/Dockerfile"
+"deploy/azure/requirements.txt" = "sharktopus/_deploy/azure/requirements.txt"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 # See hatch_build.py — flips the wheel to platform-specific when a wgrib2
